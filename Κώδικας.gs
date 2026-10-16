@@ -7255,6 +7255,7 @@ function PIONEX_TRACKER_refreshPionexBots() {
     'Κατάσταση',
     'Direction',
     'Ημ/νία Δημιουργίας',
+    'Χρόνος λειτουργίας',
     'Επένδυση',
     'Τρέχουσα Αξία',
     'Κέρδος (realized)',
@@ -7335,6 +7336,11 @@ function PIONEX_TRACKER_refreshPionexBots() {
     if (markPrice === null && type === 'futures_grid') {
       markPrice = PIONEX_TRACKER_getMarkPrice_(order.base, order.quote);
     }
+
+    const runningTime =
+      PIONEX_TRACKER_getRunningTime_(
+        order.createTime
+      );
 
     const openPrice = PIONEX_TRACKER_firstNumber_(data, ['positionOpenPrice']);
     const position = PIONEX_TRACKER_firstNumber_(data, ['position', 'baseAmount']);
@@ -7419,6 +7425,7 @@ botPositions[order.buOrderId] = Number(data.position || 0);
       data.status || order.status || '',
       data.trend || 'no_trend',
       order.createTime ? new Date(order.createTime) : '',
+      runningTime,
       metrics.investment,
       metrics.currentValue,
       metrics.profit,
@@ -7688,6 +7695,58 @@ function PIONEX_TRACKER_sendTelegramMessage_(text) {
   if (response.getResponseCode() !== 200) throw new Error('Telegram API error (HTTP ' + response.getResponseCode() + '): ' + response.getContentText());
 }
 
+function PIONEX_TRACKER_getRunningTime_(createTime) {
+  if (
+    createTime === null ||
+    createTime === undefined ||
+    createTime === ''
+  ) {
+    return 'N/A';
+  }
+
+  const startTime =
+    createTime instanceof Date
+      ? createTime.getTime()
+      : Number(createTime);
+
+  if (!isFinite(startTime) || startTime <= 0) {
+    return 'N/A';
+  }
+
+  const elapsedMilliseconds =
+    Date.now() - startTime;
+
+  if (elapsedMilliseconds < 0) {
+    return '0m';
+  }
+
+  const totalSeconds = Math.floor(
+    elapsedMilliseconds / 1000
+  );
+
+  const days = Math.floor(
+    totalSeconds / 86400
+  );
+
+  const hours = Math.floor(
+    (totalSeconds % 86400) / 3600
+  );
+
+  const minutes = Math.floor(
+    (totalSeconds % 3600) / 60
+  );
+
+  if (days > 0) {
+    return days + 'd ' + hours + 'h ' + minutes + 'm';
+  }
+
+  if (hours > 0) {
+    return hours + 'h ' + minutes + 'm';
+  }
+
+  return minutes + 'm';
+}
+
 function PIONEX_TRACKER_buildAndSendTelegramSummary_(rows, accountBalance, botPositions) {
   if (!rows.length) {
     PIONEX_TRACKER_sendTelegramMessage_('⚠️ <b>Pionex Bots</b>: Δεν βρέθηκαν ενεργά bots αυτή τη στιγμή.');
@@ -7725,7 +7784,7 @@ function PIONEX_TRACKER_buildAndSendTelegramSummary_(rows, accountBalance, botPo
   let botPosition = null;
 
   rows.forEach(row => {
-    const [id, type, pair, status, direction, created,
+    const [id, type, pair, status, direction, created, runningTime,
       investment, currentValue, profit, returnPct,
       arbitrages, arbitrages24h, arbitragesSinceLastRun, gridProfit, gridProfit24h,fundingFeePayment,
       needed, target, trendPnl, markPrice, distance, leverage,
@@ -7770,7 +7829,8 @@ try {
       (direction || 'no_trend') + (leverage ? ', ' + leverage + 'x' : '') + ')'
     );
 //    lines.push('   Επένδυση: ' + PIONEX_TRACKER_formatNumber_(investment, 2));
-    lines.push('   ┌ Arbitrages: ' + arbitrages + ' συνολικά (' + arbitrages24h + ' / 24h)');
+    lines.push('   ┌ ⏱️Running time: ' +  runningTime);
+    lines.push('   ├ Arbitrages: ' + arbitrages + ' συνολικά (' + arbitrages24h + ' / 24h)');
     lines.push(
   '   ├ Arbitrages από προηγούμενο τρέξιμο: ' +
   arbitragesSinceLastRun
@@ -7779,7 +7839,7 @@ try {
     lines.push(
       '   ├ Grid profit: ' +
       PIONEX_TRACKER_formatNumber_(gridProfit, 2) +
-      ' (24h: ' + PIONEX_TRACKER_formatNumber_(gridProfit24h, 2) + ')'
+      ' (24h: ' + PIONEX_TRACKER_formatNumber_(gridProfit24h, 2) + ' USDT)'
     );
 
     lines.push(
@@ -8035,35 +8095,48 @@ Logger.log(
 );
 
 
+// const targetTotalPnL = Number(investment || 0) * 0.08;
+
+// Πόσο PnL απομένει μέχρι τον στόχο.
+const pnlToRecover = targetTotalPnL - Number(currentTotalPnL);
+
+// Εκτίμηση ημερών από το Grid profit 24ώρου.
+const estimatedDaysByGrid =
+  Number(gridProfit24h) > 0 && pnlToRecover > 0
+    ? Math.ceil(pnlToRecover / Number(gridProfit24h))
+    : null;
+
+// Επιλογή εκτίμησης: πρώτα candles, διαφορετικά Grid profit.
+const targetTimeMessage =
+  targetTimeEstimate &&
+  Number.isFinite(targetTimeEstimate.hours) &&
+  targetTimeEstimate.hours > 0
+    ? `📈 Εκτίμηση βάσει τάσης: ~${(targetTimeEstimate.hours / 24).toFixed(1)} ημέρες`
+    : estimatedDaysByGrid !== null
+      ? `⏳ Εκτίμηση βάσει Grid profit: ~${estimatedDaysByGrid} ημέρες (ρυθμός ${PIONEX_TRACKER_formatNumber_(Number(gridProfit24h), 2)} USDT/24h)`
+      : '⏳ Χρόνος έως Target 8%: Μη διαθέσιμη εκτίμηση';
+
+
+
 const targetMessage =
   targetPrice8 !== null
     ? [
         `🎯 Target 8%: ${PIONEX_TRACKER_formatNumber_(targetPrice8, 8)}`,
         `📏 Απόσταση τιμής: ${PIONEX_TRACKER_formatNumber_(targetDistance, 8)}`,
         `📈 Μεταβολή έως στόχο: ${targetDistancePct >= 0 ? '+' : ''}${PIONEX_TRACKER_formatNumber_(targetDistancePct, 2)}%`,
-        `⏳ Εκτίμηση έως Target 8%: ${targetTimeEstimate.message}`
+        targetTimeMessage,
+        `🏛️ Target Total PnL: ${PIONEX_TRACKER_formatNumber_(targetTotalPnL, 2)} USDT`,
+        `💰 PnL που απομένει: ${PIONEX_TRACKER_formatNumber_(pnlToRecover, 2)} USDT`
       ].join('\n')
     : '🎯 Target 8%: N/A';
 
 lines.push('');
 lines.push(targetMessage);
 
+lines.push('');
+lines.push('🕒 ' + new Date().toLocaleString('el-GR'));
 
-
-lines.push(
-  '' + 
-  '🏛️ Target Total Pnl: ' +
-  PIONEX_TRACKER_formatNumber_(
-    targetTotalPnL,
-    2
-  )
-);
-
-
-  lines.push('');
-  lines.push('🕒 ' + new Date().toLocaleString('el-GR'));
-
-  });
+});
 
 
   PIONEX_TRACKER_sendTelegramMessage_(lines.join('\n'));
@@ -8508,6 +8581,7 @@ function onOpen() {
     .addItem('🏠︎ Pearl Dashboard', 'runPearlDashboard')
     .addItem('💲 FED News – Macro Risk Signals', 'runDailyUpdate')
     .addItem('🏛️ Crypto Market - 12H Outlook', 'CTM_runMarketTrendReport')
+    .addItem('👷🏻 Mining Report', 'refreshKryptex')
     .addToUi();
 }
 
@@ -9976,22 +10050,79 @@ function CA4H_formatPionexDerivativesMessage_(
         '`'
       : 'Pionex candle: `n/a`';
 
-  return [
+  const messageParts = [
     '📊 *Pionex Derivatives Confirmation*',
     'Symbol: `' + d.symbol + '`',
-    'Funding (next/last): `' +
-      fundingPct + '`',
+    'Funding (next/last): `' + fundingPct + '`',
     'OI μεταβολή: `' + oiText + '`',
     'Price 4H: `' + priceText + '`',
     'Volume: ' + volumeLine,
-    candleLine,
-    d.classification.emoji +
+    candleLine
+  ];
+
+  // ==========================================
+  // ΠΡΟΣΘΗΚΗ: OKX Long/Short Ratio
+  // ==========================================
+if (d.longShortRatio) {
+  if (d.longShortRatio.error) {
+    messageParts.push(
+      '👥 Long/Short Ratio: `n/a` — ' +
+      d.longShortRatio.error
+    );
+  } else if (d.longShortRatio.data) {
+    const ratio =
+      d.longShortRatio.data.ratio;
+
+    const change =
+      d.longShortRatio.data.changePct;
+
+    const changeText =
+      change == null
+        ? 'n/a'
+        : (
+            change >= 0 ? '+' : ''
+          ) +
+          change.toFixed(2) +
+          '%';
+
+    messageParts.push(
+      '👥 Long/Short Ratio (OKX, 1H): `' +
+      ratio.toFixed(2) +
+      '` | Μεταβολή: `' +
+      changeText +
+      '`'
+    );
+
+    messageParts.push(
+      d.longShortRatio.interpretation.emoji +
       ' *' +
-      d.classification.label +
-      '*',
-    d.classification.note,
-    '_Τα δεδομένα αφορούν Pionex perpetual market. Funding και OI είναι ένδειξη positioning/ρίσκου, όχι βεβαιότητα για μελλοντική τιμή._'
-  ].join('\n');
+      d.longShortRatio.interpretation.label +
+      '* — ' +
+      d.longShortRatio.interpretation.note
+    );
+  }
+}
+
+  // ==========================================
+  // Classification
+  // ==========================================
+  messageParts.push(
+    d.classification.emoji +
+    ' *' +
+    d.classification.label +
+    '*'
+  );
+
+  messageParts.push(
+    d.classification.note
+  );
+
+  messageParts.push(
+    '_Τα δεδομένα αφορούν Pionex perpetual market. Funding, OI και Long/Short Ratio είναι ένδειξη positioning/ρίσκου, όχι βεβαιότητα για μελλοντική τιμή._'
+  );
+
+return messageParts.join('\n');
+
 }
 
 
@@ -10067,15 +10198,45 @@ function CA4H_getPionexDerivativesAnalysis_(
         okxAnalysis
       );
 
-    return {
-      symbol: pionexSymbol,
-      funding: funding,
-      oi: oi,
-      market: market,
-      ticker: ticker,
-      classification: classification,
-      fetchedAt: new Date()
-    };
+let longShortRatio = null;
+
+try {
+  const okxRatio =
+    CA4H_getOkxLongShortRatio_(
+      okxInstId
+    );
+
+  longShortRatio = {
+    data: okxRatio,
+    interpretation:
+      CA4H_interpretOkxLongShortRatio_(
+        okxRatio.ratio
+      )
+  };
+} catch (e) {
+  longShortRatio = {
+    error:
+      'OKX Long/Short lookup failed: ' +
+      e.message
+  };
+}
+
+Logger.log(
+  'Long/Short result: ' +
+  JSON.stringify(longShortRatio)
+);
+
+return {
+  symbol: pionexSymbol,
+  funding: funding,
+  oi: oi,
+  market: market,
+  ticker: ticker,
+  longShortRatio: longShortRatio,
+  classification: classification,
+  fetchedAt: new Date()
+};
+
 
   } catch (e) {
     return {
@@ -10084,6 +10245,168 @@ function CA4H_getPionexDerivativesAnalysis_(
         e.message
     };
   }
+}
+
+function CA4H_getOkxCurrency_(
+  okxInstId
+) {
+  return String(okxInstId)
+    .toUpperCase()
+    .replace('-SWAP', '')
+    .split('-')[0];
+}
+
+function CA4H_getOkxLongShortRatio_(
+  okxInstId
+) {
+  const ccy =
+    CA4H_getOkxCurrency_(okxInstId);
+
+const url =
+  CA4H_CFG.OKX_BASE_URL +
+  '/api/v5/rubik/stat/contracts/long-short-account-ratio' +
+  '?ccy=' +
+  encodeURIComponent(ccy) +
+  '&period=1H' +
+  '&limit=2';
+
+  const response =
+    UrlFetchApp.fetch(url, {
+      method: 'get',
+      muteHttpExceptions: true
+    });
+
+  const status =
+    response.getResponseCode();
+
+  const body =
+    response.getContentText();
+
+  if (status !== 200) {
+    throw new Error(
+      'OKX Long/Short API error ' +
+      status +
+      ': ' +
+      body.slice(0, 300)
+    );
+  }
+
+  const json =
+    JSON.parse(body);
+
+  if (
+    json.code !== '0' ||
+    !json.data ||
+    !json.data.length
+  ) {
+    throw new Error(
+      'OKX Long/Short API returned no data: ' +
+      body.slice(0, 300)
+    );
+  }
+
+  const latest =
+    json.data[0];
+
+  const previous =
+    json.data.length > 1
+      ? json.data[1]
+      : null;
+
+  const ratio =
+    Number(latest[1]);
+
+  const previousRatio =
+    previous
+      ? Number(previous[1])
+      : null;
+
+  const changePct =
+    previousRatio && previousRatio !== 0
+      ? ((ratio - previousRatio) /
+        previousRatio) * 100
+      : null;
+
+return {
+  currency: ccy,
+  ratio: ratio,
+  previousRatio: previousRatio,
+  changePct: changePct,
+  timestamp: Number(latest[0]),
+  period: '1H',
+  source: 'OKX'
+};
+
+}
+
+function CA4H_interpretOkxLongShortRatio_(
+  ratio
+) {
+  if (
+    ratio == null ||
+    !isFinite(ratio)
+  ) {
+    return {
+      emoji: '⚪',
+      label: 'Μη διαθέσιμο',
+      note:
+        'Δεν υπάρχουν διαθέσιμα Long/Short δεδομένα.'
+    };
+  }
+
+  if (ratio >= 3) {
+    return {
+      emoji: '🔴',
+      label: 'Extreme long bias',
+      note:
+        'Πολύ υψηλή υπεροχή long λογαριασμών. ' +
+        'Αυξημένος κίνδυνος crowded longs και long squeeze.'
+    };
+  }
+
+  if (ratio >= 2) {
+    return {
+      emoji: '🟡',
+      label: 'Strong long bias',
+      note:
+        'Δυνατή υπεροχή long λογαριασμών. Η άνοδος μπορεί να συνεχιστεί, ' +
+        'αλλά αυξάνεται ο κίνδυνος long squeeze.'
+    };
+  }
+
+  if (ratio > 1.2) {
+    return {
+      emoji: '🟢',
+      label: 'Long bias',
+      note:
+        'Οι long λογαριασμοί υπερτερούν, χωρίς ακόμη ακραία συσσώρευση.'
+    };
+  }
+
+  if (ratio >= 0.8) {
+    return {
+      emoji: '⚪',
+      label: 'Balanced positioning',
+      note:
+        'Οι long και short λογαριασμοί είναι σχετικά ισορροπημένοι.'
+    };
+  }
+
+  if (ratio >= 0.5) {
+    return {
+      emoji: '🟢',
+      label: 'Short bias',
+      note:
+        'Οι short λογαριασμοί υπερτερούν. Πιθανή πίεση για short covering σε άνοδο.'
+    };
+  }
+
+  return {
+    emoji: '🟠',
+    label: 'Extreme short bias',
+    note:
+      'Πολύ υψηλή υπεροχή short λογαριασμών. Πιθανή ευαισθησία σε short squeeze.'
+  };
 }
 
 
@@ -18597,6 +18920,544 @@ function createQtcDailyTrigger() {
   });
   ScriptApp.newTrigger('runQtcDashboard').timeBased().everyDays(1).atHour(9).create();
   console.log('Daily trigger created for runQtcDashboard at 09:00.');
+}
+
+
+
+
+
+/**
+ * Kryptex Pool → Google Sheets
+ * Public API: https://pool.kryptex.com
+ *
+ * Δημιουργεί:
+ * Config, Pool Summary, Workers, Earnings History, API Raw
+ *
+ * Σημείωση:
+ * Το API είναι δημόσιο Pool API. Δεν αποτελεί API για το
+ * συνολικό υπόλοιπο του Kryptex Windows application.
+ */
+
+const KRYPTEX_BASE = 'https://pool.kryptex.com';
+
+const SHEETS = {
+  config: 'Config',
+  summary: 'Pool Summary',
+  workers: 'Workers',
+  earnings: 'Earnings History',
+  raw: 'API Raw'
+};
+
+function setupKryptex() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  ensureSheet_(ss, SHEETS.config, [
+    ['Enabled', 'Coin', 'Mining Address', 'Label'],
+    [true, 'kas', 'PUT_YOUR_MINING_ADDRESS_HERE', 'KAS Windows/Pool']
+  ]);
+
+  ensureSheet_(ss, SHEETS.summary, [[
+    'Timestamp', 'Coin', 'Label', 'Address',
+    'Balance API response', 'Payout stats response',
+    'Status', 'Error'
+  ]]);
+
+  ensureSheet_(ss, SHEETS.workers, [[
+    'Timestamp', 'Coin', 'Label', 'Address',
+    'Worker data (JSON)', 'Status', 'Error'
+  ]]);
+
+  ensureSheet_(ss, SHEETS.earnings, [[
+    'Timestamp', 'Coin', 'Label', 'Address',
+    'Payout history (JSON)',
+    'Reward chart (JSON)',
+    'Balance snapshot (JSON)'
+  ]]);
+
+  ensureSheet_(ss, SHEETS.raw, [[
+    'Timestamp', 'Coin', 'Label', 'Endpoint',
+    'HTTP status', 'Response JSON'
+  ]]);
+
+  // Αφαίρεση παλιού trigger της ίδιας συνάρτησης.
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'refreshKryptex')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+
+  ScriptApp.newTrigger('refreshKryptex')
+    .timeBased()
+    .everyHours(1)
+    .create();
+
+  refreshKryptex();
+}
+
+function refreshKryptex() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const cfg = ss.getSheetByName(SHEETS.config);
+
+  if (!cfg || cfg.getLastRow() < 2) {
+    throw new Error('Συμπλήρωσε το φύλλο Config.');
+  }
+
+  const rows = cfg.getRange(2, 1, cfg.getLastRow() - 1, 4)
+    .getValues();
+
+  const now = new Date();
+  const summaryRows = [];
+  const workerRows = [];
+  const earningRows = [];
+  const rawRows = [];
+
+  rows.forEach(row => {
+    const [enabled, coinValue, addressValue, labelValue] = row;
+
+    if (enabled !== true) return;
+
+    const coin = String(coinValue || '').trim().toLowerCase();
+    const address = String(addressValue || '').trim();
+    const label = String(labelValue || coin).trim();
+
+    if (!coin || !address ||
+        address === 'PUT_YOUR_MINING_ADDRESS_HERE') {
+      return;
+    }
+
+
+const endpoints = {
+  balance:
+    `/${coin}/api/v1/miner/balance/${encodeURIComponent(address)}`,
+
+  workers:
+    `/${coin}/api/v3/miner/workers/${encodeURIComponent(address)}`,
+
+  payouts:
+    `/${coin}/api/v1/miner/payouts/${encodeURIComponent(address)}`,
+
+  payoutStats:
+    `/${coin}/api/v1/miner/payouts/${encodeURIComponent(address)}/stats`,
+
+  chart:
+    `/${coin}/api/v1/miner/chart/${encodeURIComponent(address)}`,
+
+  rewards:
+    `/${coin}/api/v1/miner/reward-chart/${encodeURIComponent(address)}`
+};
+
+    const result = {};
+
+    Object.entries(endpoints).forEach(([key, path]) => {
+      result[key] = fetchKryptex_(path, now, coin, label, rawRows);
+    });
+
+    
+const b = result.balance.data || {};
+const p = result.payoutStats.data || {};
+const reward = p.reward || {};
+
+summaryRows.push([
+  now,
+  coin,
+  label,
+  address,
+  Number(b.total ?? 0),
+  Number(b.unconfirmed ?? 0),
+  Number(b.confirmed ?? 0),
+  Number(b.threshold ?? 0),
+  Number(b.reached_pct ?? 0),
+  Number(p.paid ?? 0),
+  Number(p.unpaid ?? 0),
+  Number(reward.week ?? 0),
+  Number(reward.month ?? 0),
+  b.last_active
+    ? new Date(Number(b.last_active))
+    : '',
+  result.balance.ok ? 'OK' : 'ERROR',
+  result.balance.error || ''
+]);
+
+
+    workerRows.push([
+      now, coin, label, address,
+      json_(result.workers.data),
+      result.workers.ok ? 'OK' : 'ERROR',
+      result.workers.error || ''
+    ]);
+
+// Αντικατάστησε το earningRows.push με:
+    earningRows.push([
+      now, coin, label, address,
+      json_(result.payouts.data),
+      json_(result.rewards.data),
+      json_(result.balance.data),
+      json_(result.chart.data)
+    ]);
+
+  });
+
+  appendRows_(ss.getSheetByName(SHEETS.summary), summaryRows);
+  appendRows_(ss.getSheetByName(SHEETS.workers), workerRows);
+  appendRows_(ss.getSheetByName(SHEETS.earnings), earningRows);
+  appendRows_(ss.getSheetByName(SHEETS.raw), rawRows);
+
+  sendKryptexTelegramSummary();
+
+}
+
+function fetchKryptex_(path, timestamp, coin, label, rawRows) {
+  const url = KRYPTEX_BASE + path;
+
+  try {
+    const response = UrlFetchApp.fetch(url, {
+      method: 'get',
+      muteHttpExceptions: true,
+      followRedirects: true,
+      headers: { Accept: 'application/json' }
+    });
+
+    const status = response.getResponseCode();
+    const text = response.getContentText();
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      data = { rawText: text };
+    }
+
+    rawRows.push([
+      timestamp, coin, label, path, status, json_(data)
+    ]);
+
+    return {
+      ok: status >= 200 && status < 300,
+      data: data,
+      error: status >= 200 && status < 300
+        ? ''
+        : 'HTTP ' + status
+    };
+  } catch (e) {
+    rawRows.push([
+      timestamp, coin, label, path, 'FETCH ERROR',
+      String(e)
+    ]);
+
+    return { ok: false, data: null, error: String(e) };
+  }
+}
+
+function ensureSheet_(ss, name, initialRows) {
+  let sh = ss.getSheetByName(name);
+
+  if (!sh) sh = ss.insertSheet(name);
+
+  if (sh.getLastRow() === 0) {
+    sh.getRange(1, 1, initialRows.length,
+      initialRows[0].length).setValues(initialRows);
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, 1, initialRows[0].length)
+      .setFontWeight('bold');
+    sh.autoResizeColumns(1, initialRows[0].length);
+  }
+
+  return sh;
+}
+
+function appendRows_(sheet, rows) {
+  if (!rows.length) return;
+
+  sheet.getRange(
+    sheet.getLastRow() + 1, 1,
+    rows.length, rows[0].length
+  ).setValues(rows);
+}
+
+function json_(value) {
+  if (value === null || value === undefined) return '';
+  const text = typeof value === 'string'
+    ? value
+    : JSON.stringify(value);
+
+  // Αποφυγή υπέρβασης του ορίου χαρακτήρων ενός κελιού.
+  return text.length > 45000
+    ? text.substring(0, 45000) + ' ... [TRUNCATED]'
+    : text;
+}
+
+/** Χειροκίνητη ενημέρωση από το μενού Run. */
+function testKryptex() {
+  refreshKryptex();
+}
+
+
+function checkKryptexPools() {
+  const url = 'https://pool.kryptex.com/api/v1/index';
+
+  const response = UrlFetchApp.fetch(url, {
+    method: 'get',
+    muteHttpExceptions: true,
+    headers: { Accept: 'application/json' }
+  });
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName('Pool Index');
+
+  if (!sh) sh = ss.insertSheet('Pool Index');
+
+  sh.clearContents();
+  sh.getRange('A1:B2').setValues([
+    ['HTTP Status', 'API Response'],
+    [response.getResponseCode(), response.getContentText()]
+  ]);
+}
+
+
+/**
+ * Telegram notifications for Kryptex Google Sheets.
+ * Requires Script Properties:
+ * TELEGRAM_BOT_TOKEN
+ * TELEGRAM_CHAT_ID
+ */
+
+
+
+function sendKryptexTelegramSummary() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName('API Raw');
+
+  if (!sh || sh.getLastRow() < 2) {
+    throw new Error('Το API Raw δεν περιέχει δεδομένα.');
+  }
+
+  const data = sh.getDataRange().getValues();
+  const headers = data[0].map(v => String(v).trim().toLowerCase());
+
+  const idx = name => headers.indexOf(name.toLowerCase());
+
+  const tsCol = idx('Timestamp');
+  const coinCol = idx('Coin');
+  const labelCol = idx('Label');
+  const endpointCol = idx('Endpoint');
+  const httpCol = idx('HTTP status');
+  const responseCol = idx('Response JSON');
+
+  if ([tsCol, coinCol, labelCol, endpointCol, httpCol, responseCol]
+      .some(i => i < 0)) {
+    throw new Error(
+      'Έλεγξε τις επικεφαλίδες του API Raw: Timestamp, Coin, Label, Endpoint, HTTP status, Response JSON.'
+    );
+  }
+
+  // Τελευταίο response για κάθε coin, label και endpoint.
+  const latest = new Map();
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const endpoint = String(row[endpointCol] || '');
+    const coin = String(row[coinCol] || '');
+    const label = String(row[labelCol] || coin);
+
+    if (!endpoint || !coin) continue;
+
+    const key = coin + '|' + label + '|' + endpoint;
+    const old = latest.get(key);
+
+    if (!old || new Date(row[tsCol]) >= new Date(old[tsCol])) {
+      latest.set(key, row);
+    }
+  }
+
+  const groups = new Map();
+
+  for (const row of latest.values()) {
+    const coin = String(row[coinCol]);
+    const label = String(row[labelCol] || coin);
+    const endpoint = String(row[endpointCol]);
+    const key = coin + '|' + label;
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        coin,
+        label,
+        balance: null,
+        payouts: null,
+        workers: null,
+        statuses: []
+      });
+    }
+
+    const g = groups.get(key);
+    const status = String(row[httpCol] || '');
+    const body = parseJsonCell_(row[responseCol]);
+
+    g.statuses.push(status);
+
+    if (endpoint.includes('/miner/balance/')) {
+      g.balance = body;
+    } else if (endpoint.includes('/miner/payouts/') &&
+               endpoint.endsWith('/stats')) {
+      g.payouts = body;
+    } else if (endpoint.includes('/miner/workers/')) {
+      g.workers = body;
+    }
+  }
+
+  const lines = [
+    '<b>⛏️ Kryptex Mining Report</b>',
+    '🕒 ' + Utilities.formatDate(
+      new Date(),
+      Session.getScriptTimeZone(),
+      'dd/MM/yyyy HH:mm'
+    ),
+    ''
+  ];
+
+  for (const g of groups.values()) {
+    lines.push(
+      '<b>' + escapeTelegramHtml_(g.label) + '</b>'
+    );
+
+    const b = g.balance;
+    const p = g.payouts;
+    const reward = p && p.reward ? p.reward : null;
+
+    const symbol = g.coin.toLowerCase() === 'zeph' ||
+               g.label.toLowerCase().includes('zephyr') ||
+               g.label.toLowerCase().includes('zeph')
+      ? 'ZEPH'
+      : 'QUAI';
+
+    const unit = ' ' + symbol;
+
+    if (b && typeof b === 'object' && b.total !== undefined) {
+      lines.push('💰 Total: ' + fmt_(b.total) + unit);
+      lines.push('✅ Confirmed: ' + fmt_(b.confirmed) + unit);
+      lines.push('⏳ Unconfirmed: ' + fmt_(b.unconfirmed) + unit);
+      lines.push('🎯 Threshold: ' + fmt_(b.threshold) + unit);
+      lines.push('📊 Progress: ' + fmt_(b.reached_pct) + '%');
+    } else {
+      lines.push('⚠️ Balance data unavailable');
+    }
+
+    if (p && typeof p === 'object') {
+//      lines.push('💸 Paid: ' + fmt_(p.paid) + unit);
+//      lines.push('💳 Unpaid: ' + fmt_(p.unpaid) + unit);
+
+      if (reward) {
+        lines.push('📅 Reward week: ' + fmt_(reward.week) + unit);
+        lines.push('🗓️ Reward month: ' + fmt_(reward.month) + unit);
+      }
+    } else {
+      lines.push('⚠️ Payout statistics unavailable');
+    }
+
+    lines.push(
+      '📡 API status: ' +
+      (g.statuses.length && g.statuses.every(s => s === '200')
+        ? 'OK'
+        : escapeTelegramHtml_(g.statuses.join(', ') || 'unknown'))
+    );
+
+    lines.push('');
+  }
+
+  lines.push(
+    '<i>Pool statistics only — not total Kryptex account balance.</i>'
+  );
+
+  telegramSend_(lines.join('\n'));
+}
+
+
+
+function testKryptexTelegram() {
+  telegramSend_(
+    '<b>✅ Kryptex Telegram test</b>\n' +
+    'Η σύνδεση του Google Apps Script με το Telegram λειτουργεί.'
+  );
+}
+
+function telegramSend_(message) {
+  const props = PropertiesService.getScriptProperties();
+  const token = props.getProperty('TELEGRAM_BOT_TOKEN');
+  const chatId = props.getProperty('TELEGRAM_CHAT_ID');
+
+  if (!token || !chatId) {
+    throw new Error(
+      'Πρόσθεσε TELEGRAM_BOT_TOKEN και TELEGRAM_CHAT_ID ' +
+      'στις Script Properties.'
+    );
+  }
+
+  const url = 'https://api.telegram.org/bot' +
+    token + '/sendMessage';
+
+  const response = UrlFetchApp.fetch(url, {
+    method: 'post',
+    payload: {
+      chat_id: chatId,
+      text: message,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true
+    },
+    muteHttpExceptions: true
+  });
+
+  const status = response.getResponseCode();
+
+  if (status < 200 || status >= 300) {
+    throw new Error(
+      'Telegram HTTP ' + status + ': ' +
+      response.getContentText().substring(0, 500)
+    );
+  }
+}
+
+function parseJsonCell_(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  if (typeof value === 'object') return value;
+
+  try {
+    return JSON.parse(String(value));
+  } catch (e) {
+    return null;
+  }
+}
+
+function fmt_(value) {
+  if (value === null || value === undefined || value === '') {
+    return 'N/A';
+  }
+
+  const n = Number(value);
+  return Number.isFinite(n)
+    ? n.toLocaleString('en-US', {
+        maximumFractionDigits: 4
+      })
+    : String(value);
+}
+
+function workerCount_(data) {
+  if (!data) return 'N/A';
+  if (Array.isArray(data)) return data.length;
+
+  if (typeof data === 'object') {
+    for (const key of ['workers', 'data', 'items', 'result']) {
+      if (Array.isArray(data[key])) return data[key].length;
+    }
+  }
+
+  return 'See Workers sheet';
+}
+
+function escapeTelegramHtml_(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 

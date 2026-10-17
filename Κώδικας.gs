@@ -7337,6 +7337,18 @@ function PIONEX_TRACKER_refreshPionexBots() {
       markPrice = PIONEX_TRACKER_getMarkPrice_(order.base, order.quote);
     }
 
+const priceChange =
+  PIONEX_TRACKER_getPriceChangeSinceLastRun_(
+    order.buOrderId,
+    markPrice
+  );
+
+const previousPrice =
+  priceChange.previousPrice;
+
+const priceChangePercent =
+  priceChange.priceChangePercent;
+
     const runningTime =
       PIONEX_TRACKER_getRunningTime_(
         order.createTime
@@ -7747,6 +7759,54 @@ function PIONEX_TRACKER_getRunningTime_(createTime) {
   return minutes + 'm';
 }
 
+function PIONEX_TRACKER_getPriceChangeSinceLastRun_(
+  botId,
+  currentPrice
+) {
+  const properties =
+    PropertiesService.getScriptProperties();
+
+  const key =
+    'PIONEX_LAST_MARK_PRICE_' + botId;
+
+  const previousRaw =
+    properties.getProperty(key);
+
+  const previousPrice =
+    previousRaw === null || previousRaw === ''
+      ? null
+      : Number(previousRaw);
+
+  const price =
+    Number(currentPrice);
+
+  let priceChangePercent = null;
+
+  if (
+    previousPrice !== null &&
+    Number.isFinite(previousPrice) &&
+    previousPrice !== 0 &&
+    Number.isFinite(price)
+  ) {
+    priceChangePercent =
+      ((price - previousPrice) /
+        previousPrice) * 100;
+  }
+
+  if (Number.isFinite(price)) {
+    properties.setProperty(
+      key,
+      String(price)
+    );
+  }
+
+  return {
+    previousPrice: previousPrice,
+    currentPrice: price,
+    priceChangePercent: priceChangePercent
+  };
+}
+
 function PIONEX_TRACKER_buildAndSendTelegramSummary_(rows, accountBalance, botPositions) {
   if (!rows.length) {
     PIONEX_TRACKER_sendTelegramMessage_('⚠️ <b>Pionex Bots</b>: Δεν βρέθηκαν ενεργά bots αυτή τη στιγμή.');
@@ -7783,7 +7843,7 @@ function PIONEX_TRACKER_buildAndSendTelegramSummary_(rows, accountBalance, botPo
 
   let botPosition = null;
 
-  rows.forEach(row => {
+    rows.forEach(row => {
     const [id, type, pair, status, direction, created, runningTime,
       investment, currentValue, profit, returnPct,
       arbitrages, arbitrages24h, arbitragesSinceLastRun, gridProfit, gridProfit24h,fundingFeePayment,
@@ -7810,7 +7870,14 @@ try {
   );
 }
 
+const botId = row[0];
 
+const priceChangePercent =
+  PIONEX_TRACKER_getPriceChangeSinceLastRun_(
+    botId,
+    markPrice
+  );
+  
 
     totalInvestment += typeof investment === 'number' ? investment : 0;
     totalArbitrages += typeof arbitrages === 'number' ? arbitrages : 0;
@@ -7842,9 +7909,17 @@ try {
       ' (24h: ' + PIONEX_TRACKER_formatNumber_(gridProfit24h, 2) + ' USDT)'
     );
 
+    const priceChangeIcon =
+      priceChangePercent === null
+        ? '⚪'
+        : PIONEX_TRACKER_sign_(
+            priceChangePercent
+          );
+
+
     lines.push(
       '   ├ 🏷️Τρέχουσα τιμή: ' +
-      PIONEX_TRACKER_formatNumber_(markPrice, 8) + ''
+      PIONEX_TRACKER_formatNumber_(markPrice, 8)
     );
 
     const fundingIcon =
@@ -7893,11 +7968,11 @@ try {
 
 
 const currentValue1 = rows.reduce(
-  (sum, row) => sum + (Number(row[7]) || 0),
+  (sum, row) => sum + (Number(row[8]) || 0),
   0
 );
 const trendPnL2 = rows.reduce(
-  (sum, row) => sum + (Number(row[16]) || 0),
+  (sum, row) => sum + (Number(row[17]) || 0),
   0
 );
 
@@ -7931,24 +8006,24 @@ const currentPnL = currentValue1 - investment + trendPnl
     lines.push('');
 
 const totalProfit = rows.reduce(
-  (sum, row) => sum + (Number(row[8]) || 0),
+  (sum, row) => sum + (Number(row[9]) || 0),
   0
 );
 const currentValue2 = rows.reduce(
-  (sum, row) => sum + (Number(row[7]) || 0),
+  (sum, row) => sum + (Number(row[8]) || 0),
   0
 );
 const trendValue = rows.reduce(
-  (sum, row) => sum + (Number(row[16]) || 0),
+  (sum, row) => sum + (Number(row[17]) || 0),
   0
 );
 const currentGridProfit = rows.reduce(
-  (sum, row) => sum + (Number(row[12]) || 0),
+  (sum, row) => sum + (Number(row[13]) || 0),
   0
 );
 
 const GridProfit24h = rows.reduce(
-  (sum, row) => sum + (Number(row[13]) || 0),
+  (sum, row) => sum + (Number(row[14]) || 0),
   0
 );
 

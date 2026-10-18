@@ -7348,7 +7348,6 @@ const previousPrice =
 
 const priceChangePercent =
   priceChange.priceChangePercent;
-
     const runningTime =
       PIONEX_TRACKER_getRunningTime_(
         order.createTime
@@ -7793,13 +7792,6 @@ function PIONEX_TRACKER_getPriceChangeSinceLastRun_(
         previousPrice) * 100;
   }
 
-  if (Number.isFinite(price)) {
-    properties.setProperty(
-      key,
-      String(price)
-    );
-  }
-
   return {
     previousPrice: previousPrice,
     currentPrice: price,
@@ -7843,7 +7835,7 @@ function PIONEX_TRACKER_buildAndSendTelegramSummary_(rows, accountBalance, botPo
 
   let botPosition = null;
 
-    rows.forEach(row => {
+  rows.forEach(row => {
     const [id, type, pair, status, direction, created, runningTime,
       investment, currentValue, profit, returnPct,
       arbitrages, arbitrages24h, arbitragesSinceLastRun, gridProfit, gridProfit24h,fundingFeePayment,
@@ -7909,18 +7901,83 @@ const priceChangePercent =
       ' (24h: ' + PIONEX_TRACKER_formatNumber_(gridProfit24h, 2) + ' USDT)'
     );
 
-    const priceChangeIcon =
-      priceChangePercent === null
-        ? '⚪'
-        : PIONEX_TRACKER_sign_(
-            priceChangePercent
-          );
 
+const properties =
+  PropertiesService.getScriptProperties();
 
-    lines.push(
-      '   ├ 🏷️Τρέχουσα τιμή: ' +
-      PIONEX_TRACKER_formatNumber_(markPrice, 8)
-    );
+const markPriceKey =
+  'PIONEX_LAST_MARK_PRICE_' + botId;
+
+const lastMarkPriceRaw =
+  properties.getProperty(markPriceKey);
+
+const lastMarkPrice =
+  lastMarkPriceRaw === null || lastMarkPriceRaw === ''
+    ? null
+    : Number(lastMarkPriceRaw);
+
+const currentMarkPrice =
+  Number(markPrice);
+
+let priceChangePct = null;
+
+if (
+  lastMarkPrice !== null &&
+  lastMarkPrice > 0 &&
+  Number.isFinite(currentMarkPrice)
+) {
+  priceChangePct =
+    ((currentMarkPrice - lastMarkPrice) /
+      lastMarkPrice) * 100;
+}
+
+if (Number.isFinite(currentMarkPrice)) {
+  properties.setProperty(
+    markPriceKey,
+    String(currentMarkPrice)
+  );
+}
+
+ const priceChangeIcon =
+   priceChangePct === null
+     ? '⚪'
+     : PIONEX_TRACKER_sign_(
+         priceChangePct
+       );
+
+lines.push(
+  '   ├ 🏷️Τρέχουσα τιμή: ' +
+  PIONEX_TRACKER_formatNumber_(markPrice, 8) + ' '  + priceChangeIcon + 
+  (priceChangePct !== null
+    ? ' (' + (priceChangePct >= 0 ? '+' : '') +
+      priceChangePct.toFixed(2) + '%)'
+    : ' (N/A)')
+);
+
+// Ενημέρωση τελευταίας τιμής
+
+//  const properties =
+//  PropertiesService.getScriptProperties();
+
+//rows.forEach(row => {
+//  const botId = row[0];
+
+//  const priceChange =
+//    priceChanges && priceChanges[botId]
+//      ? priceChanges[botId]
+//      : null;
+
+//  if (
+//    priceChange &&
+//    priceChange.propertyKey &&
+//    Number.isFinite(markPrice)
+//  ) {
+//    properties.setProperty(
+//      priceChange.propertyKey,
+//      String(markPrice)
+//    );
+//  }
+// });
 
     const fundingIcon =
       fundingFeePayment === null ||
@@ -8215,6 +8272,10 @@ lines.push('🕒 ' + new Date().toLocaleString('el-GR'));
 
 
   PIONEX_TRACKER_sendTelegramMessage_(lines.join('\n'));
+
+
+
+
 }
 
 // =====================================================
@@ -10484,6 +10545,201 @@ function CA4H_interpretOkxLongShortRatio_(
   };
 }
 
+function CA4H_getOiBias_(derivatives) {
+  if (
+    !derivatives ||
+    derivatives.error ||
+    !derivatives.oi ||
+    !derivatives.market
+  ) {
+    return {
+      label: 'Insufficient data',
+      emoji: '⚪',
+      bias: 'neutral',
+      note: 'Δεν υπάρχουν αρκετά δεδομένα OI.'
+    };
+  }
+
+  const oiChange =
+    derivatives.oi.changePct;
+
+  const priceChange =
+    derivatives.market.priceChangePct;
+
+  if (
+    oiChange == null ||
+    priceChange == null ||
+    !isFinite(Number(oiChange)) ||
+    !isFinite(Number(priceChange))
+  ) {
+    return {
+      label: 'OI baseline',
+      emoji: '⚪',
+      bias: 'neutral',
+      note:
+        'Το OI έχει καταγραφεί ως baseline. ' +
+        'Η αξιολόγηση θα γίνει στην επόμενη μέτρηση.'
+    };
+  }
+
+  const oi =
+    Number(oiChange);
+
+  const price =
+    Number(priceChange);
+
+  const threshold = 0.10;
+
+  if (oi >= threshold && price >= threshold) {
+    return {
+      label: 'Long Build-up',
+      emoji: '🟢',
+      bias: 'bullish',
+      note:
+        'Price ↑ + OI ↑. Νέο positioning στηρίζει την ανοδική κίνηση.'
+    };
+  }
+
+  if (oi >= threshold && price <= -threshold) {
+    return {
+      label: 'Short Build-up',
+      emoji: '🔴',
+      bias: 'bearish',
+      note:
+        'Price ↓ + OI ↑. Πιθανή είσοδος νέων shorts ή αυξανόμενη bearish έκθεση.'
+    };
+  }
+
+  if (oi <= -threshold && price >= threshold) {
+    return {
+      label: 'Short Covering',
+      emoji: '🟡',
+      bias: 'weak_bullish',
+      note:
+        'Price ↑ + OI ↓. Πιθανό κλείσιμο shorts· η άνοδος δεν επιβεβαιώνεται από νέο positioning.'
+    };
+  }
+
+  if (oi <= -threshold && price <= -threshold) {
+    return {
+      label: 'Long Unwinding / Flush',
+      emoji: '🟠',
+      bias: 'bearish',
+      note:
+        'Price ↓ + OI ↓. Πιθανό κλείσιμο ή liquidation longs. Απόφυγε μηχανικό DCA.'
+    };
+  }
+
+  return {
+    label: 'Neutral OI',
+    emoji: '⚪',
+    bias: 'neutral',
+    note:
+      'Η μεταβολή OI είναι μικρή ή δεν επιβεβαιώνει καθαρά την κατεύθυνση της τιμής.'
+  };
+}
+
+function CA4H_getOverallDerivativesClassification_(
+  oiBias,
+  funding,
+  market,
+  okxAnalysis
+) {
+  const priceUp =
+    market &&
+    market.priceChangePct > 0;
+
+  const priceDown =
+    market &&
+    market.priceChangePct < 0;
+
+  const volumeUp =
+    okxAnalysis &&
+    okxAnalysis.volumeConfirmed === true;
+
+  const volumeDown =
+    okxAnalysis &&
+    okxAnalysis.volumeConfirmed === false;
+
+  const fundingRate =
+    funding &&
+    funding.nextFundingRate != null
+      ? Number(funding.nextFundingRate)
+      : funding && funding.latestRate != null
+        ? Number(funding.latestRate)
+        : null;
+
+  const fundingPositive =
+    fundingRate != null && fundingRate > 0;
+
+  const fundingNegative =
+    fundingRate != null && fundingRate < 0;
+
+  if (
+    oiBias.bias === 'bullish' &&
+    priceUp &&
+    volumeUp &&
+    fundingPositive
+  ) {
+    return {
+      label: 'BULLISH CONFIRMATION',
+      emoji: '🟢',
+      direction: 'bullish',
+      note:
+        'OI, τιμή, volume και funding επιβεβαιώνουν ανοδική κίνηση.'
+    };
+  }
+
+  if (
+    oiBias.bias === 'bearish' &&
+    priceDown &&
+    volumeUp &&
+    fundingNegative
+  ) {
+    return {
+      label: 'BEARISH CONFIRMATION',
+      emoji: '🔴',
+      direction: 'bearish',
+      note:
+        'OI, τιμή, volume και funding επιβεβαιώνουν πτωτική κίνηση.'
+    };
+  }
+
+  if (
+    oiBias.bias === 'bearish' &&
+    fundingPositive
+  ) {
+    return {
+      label: 'CONFLICTING SIGNALS',
+      emoji: '🟡',
+      direction: 'neutral',
+      note:
+        'Το OI bias είναι bearish, αλλά το θετικό funding δείχνει long bias. ' +
+        'Χρειάζεται επιβεβαίωση από volume/price action.'
+    };
+  }
+
+  if (
+    oiBias.bias === 'weak_bullish' &&
+    !volumeUp
+  ) {
+    return {
+      label: 'WEAK BULLISH / UNCONFIRMED',
+      emoji: '⚪',
+      direction: 'neutral',
+      note:
+        'Η άνοδος δεν επιβεβαιώνεται από OI ή volume. Κράτησε συντηρητική στάση.'
+    };
+  }
+
+  return {
+    label: 'MIXED / NO CLEAR CONFIRMATION',
+    emoji: '⚪',
+    direction: 'neutral',
+    note:
+      'Funding, OI, τιμή και volume δεν δίνουν συνεπή κατεύθυνση.'
+  };
+}
 
 
 // ---------------------------------------------------------------------------
@@ -19536,5 +19792,780 @@ function escapeTelegramHtml_(value) {
 }
 
 
+
+
+/**
+ * BTC-USDT-SWAP 4H Markov Order 3 + paper trading
+ * Google Apps Script. Names are prefixed M3_ to avoid collisions with existing code.
+ * No real OKX trading endpoints are called. Public market data only.
+ * Includes a heuristic 0-100 Signal Score and provisional Telegram PRE-SIGNAL
+ * warnings near 4H candle close; PRE-SIGNAL never opens a paper trade.
+ *
+ * Before use:
+ * 1) Run M3_setup() once and authorize.
+ * 2) In Project Settings > Script properties, optionally set:
+ *    TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+ * 3) Run M3_installTrigger() once.
+ *
+ * Important: paper execution is simulated at the current OKX ticker price when the
+ * signal is evaluated, not at the already-closed candle's close. SL/TP fills are
+ * simulated from the next completed 4H candle's OHLC range; ambiguous same-candle
+ * stop/target touches are resolved conservatively by prioritizing the stop.
+ */
+const M3_CONFIG = {
+  instrument: 'BTC-USDT-SWAP',
+  bar: '4H',
+  candleTarget: 1800,
+  pageLimit: 300,
+  minTripleSamples: 100,
+  minProbability: 0.60,
+  requireWilsonLowerAbove50: true,
+  leverage: 3,
+  marginPctOfEquity: 0.05,
+  initialEquityUSDT: 1000,
+  takerFeeRate: 0.0005, // assumption; replace with account's actual fee tier
+  maxHoldCandles: 1,
+  stopAtrMultiple: 1.4,
+  target1AtrMultiple: 1.0,
+  target2AtrMultiple: 1.8,
+  target1CloseFraction: 0.50,
+  minAtrPct: 0.002,
+  maxAtrPct: 0.04,
+  minVolumeVsAvg20: 0.80,
+  recentWindows: [12, 36, 72],
+  triggerEveryMinutes: 5,
+  integrityTriggerEveryMinutes: 15,
+  enablePreSignalWarnings: true,
+  preSignalMinScore: 65,
+  preSignalMinutesBeforeClose: 30,
+  sheets: {
+    candles: 'M3_Candles', stats: 'M3_MarkovStats', patterns: 'M3_PatternStats',
+    signals: 'M3_Signals', trades: 'M3_PaperTrades', logs: 'M3_Logs'
+  }
+};
+
+function M3_setup() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const headers = {
+    M3_Candles: ['timestamp_ms','timestamp_utc','instrument','open','high','low','close','volume_contracts','volume_base','volume_quote','confirm','state_GR','ema20','ema50','ema200','rsi14','macd_hist','atr14_pct','obv','volume_vs_avg20'],
+    M3_MarkovStats: ['triple','n','next_G','next_R','pG_laplace','pR_laplace','wilsonLowerG95','wilsonLowerR95'],
+    M3_PatternStats: ['pattern5','n','next_G','next_R','pG_laplace','pR_laplace'],
+    M3_Signals: ['evaluated_utc','candle_timestamp_utc','instrument','last_triple','last_five','n_triple','next_G','next_R','pG_laplace','pR_laplace','wilsonLowerG95','wilsonLowerR95','ema20','ema50','ema200','rsi14','macd_hist','atr14_pct','volume_vs_avg20','window12_green_pct','window36_green_pct','window72_green_pct','decision','reasons','signal_score','score_markov','score_trend','score_momentum','score_recent_behavior','score_market_conditions','score_direction'],
+    M3_PaperTrades: ['trade_id','status','side','signal_candle_timestamp_utc','entry_timestamp_utc','entry_price','leverage','margin_usdt','notional_usdt','exit_timestamp_utc','exit_price','gross_pnl_usdt','fees_usdt','net_pnl_usdt','equity_after_usdt','exit_reason','triple','p_direction','atr_at_entry','stop_price','target1_price','target2_price','tp1_hit','remaining_fraction','realized_gross_pnl_usdt','entry_fee_usdt','exit_fees_usdt','entry_signal_score','entry_score_markov','entry_score_trend','entry_score_momentum','entry_score_recent_behavior','entry_score_market_conditions'],
+    M3_Logs: ['timestamp_utc','level','event','details']
+  };
+  Object.keys(headers).forEach(name => {
+    let sh = ss.getSheetByName(name);
+    if (!sh) sh = ss.insertSheet(name);
+    if (sh.getLastRow() === 0) {
+      sh.getRange(1,1,1,headers[name].length).setValues([headers[name]]);
+      sh.setFrozenRows(1);
+    } else {
+      // Safe schema upgrade: append newly introduced columns without overwriting user data.
+      const current = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(String);
+      headers[name].forEach(h => {
+        if (current.indexOf(h) === -1) {
+          sh.getRange(1,sh.getLastColumn()+1).setValue(h);
+          current.push(h);
+        }
+      });
+    }
+  });
+  const p = PropertiesService.getScriptProperties();
+  if (!p.getProperty('M3_PAPER_EQUITY')) p.setProperty('M3_PAPER_EQUITY', String(M3_CONFIG.initialEquityUSDT));
+  M3_log_('INFO','SETUP','M3 sheets created/verified; existing sheets were not modified.');
+}
+
+function M3_installTrigger() {
+  // Remove/recreate only these M3 triggers; leave unrelated project triggers untouched.
+  const handlers = ['M3_run', 'M3_integrityCheck'];
+  ScriptApp.getProjectTriggers()
+    .filter(t => handlers.indexOf(t.getHandlerFunction()) !== -1)
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('M3_run').timeBased().everyMinutes(M3_CONFIG.triggerEveryMinutes).create();
+  ScriptApp.newTrigger('M3_integrityCheck').timeBased().everyMinutes(M3_CONFIG.integrityTriggerEveryMinutes).create();
+  M3_log_('INFO','TRIGGERS_INSTALLED','M3_run every 5 minutes; M3_integrityCheck every 15 minutes. Closed-candle processing is deduplicated; provisional PRE-SIGNAL warnings are separately deduplicated by candle and direction.');
+}
+
+/**
+ * Secondary watchdog: validates recent OKX candle data every 15 minutes.
+ * It does not send routine Telegram messages. If it detects a newer confirmed
+ * candle, it delegates to M3_run(), which only sends an entry alert for a new,
+ * valid signal and uses the saved candle timestamp to prevent duplicates.
+ */
+function M3_integrityCheck() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return;
+  try {
+    const recent = M3_fetchRecentConfirmed_(10);
+    const issues = M3_validateRecentCandles_(recent);
+    if (issues.length) {
+      M3_log_('WARN','DATA_INTEGRITY_CHECK',JSON.stringify(issues));
+      M3_sendErrorAlert_('INTEGRITY_CHECK','DATA_INTEGRITY_CHECK: '+JSON.stringify(issues));
+      return;
+    }
+    const latest = recent[recent.length - 1];
+    const props = PropertiesService.getScriptProperties();
+    const processed = props.getProperty('M3_LAST_PROCESSED_CANDLE_TS');
+    M3_log_('INFO','DATA_INTEGRITY_OK',JSON.stringify({latestClosedCandleTs:latest.ts,processedCandleTs:processed}));
+    M3_clearErrorAlert_('INTEGRITY_CHECK');
+    if (String(latest.ts) !== String(processed)) {
+      // Release the watchdog lock before calling M3_run, which acquires the same script lock.
+      lock.releaseLock();
+      M3_run();
+      return;
+    }
+    M3_retryPendingEntryAlert_();
+  } catch (e) {
+    const detail=String(e && e.stack ? e.stack : e);
+    M3_log_('ERROR','INTEGRITY_CHECK_FAILED',detail);
+    M3_sendErrorAlert_('INTEGRITY_CHECK',detail);
+  } finally {
+    // releaseLock() is safe only while this execution still owns it.
+    try { lock.releaseLock(); } catch (ignored) {}
+  }
+}
+
+function M3_fetchRecentConfirmed_(limit) {
+  const url='https://www.okx.com/api/v5/market/candles?instId='+encodeURIComponent(M3_CONFIG.instrument)+'&bar='+encodeURIComponent(M3_CONFIG.bar)+'&limit='+encodeURIComponent(limit);
+  const resp=UrlFetchApp.fetch(url,{muteHttpExceptions:true});
+  if(resp.getResponseCode()!==200) throw new Error('OKX integrity candles HTTP '+resp.getResponseCode());
+  const json=JSON.parse(resp.getContentText());
+  if(json.code!=='0') throw new Error('OKX integrity candles error '+json.code+' '+json.msg);
+  const now=Date.now();
+  return (json.data||[])
+    .filter(r=>r[8]==='1' && Number(r[0])+4*60*60*1000<=now)
+    .map(r=>({ts:Number(r[0]),open:+r[1],high:+r[2],low:+r[3],close:+r[4],volContracts:+r[5],volBase:+r[6],volQuote:+r[7],confirm:r[8]}))
+    .sort((a,b)=>a.ts-b.ts);
+}
+
+function M3_validateRecentCandles_(candles) {
+  const issues=[];
+  if(candles.length<3) return ['TOO_FEW_RECENT_CONFIRMED_CANDLES'];
+  const seen=new Set();
+  candles.forEach((c,i)=>{
+    if(seen.has(c.ts)) issues.push('DUPLICATE_TIMESTAMP_'+c.ts);
+    seen.add(c.ts);
+    if(!(c.open>0&&c.high>0&&c.low>0&&c.close>0)) issues.push('INVALID_OHLC_'+c.ts);
+    if(c.high<Math.max(c.open,c.close,c.low)||c.low>Math.min(c.open,c.close,c.high)) issues.push('INCONSISTENT_OHLC_'+c.ts);
+    if(i>0 && c.ts-candles[i-1].ts!==4*60*60*1000) issues.push('CANDLE_TIMESTAMP_GAP_'+candles[i-1].ts+'_'+c.ts);
+  });
+  return issues;
+}
+
+function M3_run() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return;
+  try {
+    // Provisional warning only: never opens or records a paper position.
+    M3_checkPreSignal_();
+    const props = PropertiesService.getScriptProperties();
+    const latest = M3_fetchLatestClosed_();
+    const processed = props.getProperty('M3_LAST_PROCESSED_CANDLE_TS');
+    if (String(latest.ts) === String(processed)) {
+      // Same candle: never duplicate the alert; retry only if a prior Telegram
+      // send was not confirmed and the matching paper entry is still pending.
+      M3_retryPendingEntryAlert_();
+      M3_clearErrorAlert_('RUN');
+      return;
+    }
+    const candles = M3_fetchHistory_(M3_CONFIG.candleTarget);
+    if (candles.length < 300) throw new Error('Not enough confirmed candles: ' + candles.length);
+    const enriched = M3_addIndicators_(candles);
+    M3_writeCandles_(enriched);
+    const last = enriched[enriched.length - 1];
+    if (last.ts !== latest.ts) throw new Error('Latest closed candle mismatch between API requests.');
+
+    // Close a previously open paper position at the close of the next completed candle.
+    M3_closeDuePaperTrade_(last);
+
+    const stats = M3_buildStats_(enriched);
+    M3_writeStats_(stats);
+    const result = M3_evaluate_(enriched, stats);
+    M3_writeSignal_(result);
+    M3_openPaperTradeIfValid_(result, last);
+    props.setProperty('M3_LAST_PROCESSED_CANDLE_TS', String(last.ts));
+    M3_log_('INFO','CANDLE_PROCESSED',JSON.stringify({ts:last.ts,decision:result.decision,triple:result.triple,n:result.n}));
+    M3_clearErrorAlert_('RUN');
+  } catch (e) {
+    const detail=String(e && e.stack ? e.stack : e);
+    M3_log_('ERROR','RUN_FAILED',detail);
+    M3_sendErrorAlert_('RUN',detail);
+    throw e;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+function M3_fetchLatestClosed_() {
+  const url='https://www.okx.com/api/v5/market/candles?instId='+encodeURIComponent(M3_CONFIG.instrument)+'&bar='+encodeURIComponent(M3_CONFIG.bar)+'&limit=10';
+  const resp=UrlFetchApp.fetch(url,{muteHttpExceptions:true});
+  if(resp.getResponseCode()!==200) throw new Error('OKX latest candles HTTP '+resp.getResponseCode());
+  const json=JSON.parse(resp.getContentText());
+  if(json.code!=='0') throw new Error('OKX latest candles error '+json.code+' '+json.msg);
+  const now=Date.now();
+  const rows=(json.data||[]).filter(r=>r[8]==='1' && Number(r[0])+4*60*60*1000<=now).sort((a,b)=>Number(a[0])-Number(b[0]));
+  if(!rows.length) throw new Error('OKX returned no confirmed closed 4H candle.');
+  const r=rows[rows.length-1];
+  return {ts:Number(r[0]),open:+r[1],high:+r[2],low:+r[3],close:+r[4],volContracts:+r[5],volBase:+r[6],volQuote:+r[7],confirm:r[8]};
+}
+
+function M3_fetchHistory_(target) {
+  const all = new Map();
+  let before = null;
+  let loops = 0;
+  while (all.size < target && loops < Math.ceil(target / 100) + 10) {
+    loops++;
+    let url = 'https://www.okx.com/api/v5/market/history-candles?instId=' + encodeURIComponent(M3_CONFIG.instrument) + '&bar=' + encodeURIComponent(M3_CONFIG.bar) + '&limit=' + M3_CONFIG.pageLimit;
+    if (before) url += '&after=' + encodeURIComponent(before);
+    const resp = UrlFetchApp.fetch(url, {muteHttpExceptions:true});
+    if (resp.getResponseCode() !== 200) throw new Error('OKX HTTP ' + resp.getResponseCode() + ': ' + resp.getContentText().slice(0,300));
+    const json = JSON.parse(resp.getContentText());
+    if (json.code !== '0') throw new Error('OKX API error: ' + json.code + ' ' + json.msg);
+    const rows = json.data || [];
+    if (!rows.length) break;
+    rows.forEach(r => {
+      if (r[8] !== '1') return; // confirmed candles only
+      const ts = Number(r[0]);
+      if (!Number.isFinite(ts)) return;
+      // Ensure the full 4H period has elapsed, even if API confirm lags/behaves unexpectedly.
+      if (ts + 4 * 60 * 60 * 1000 > Date.now()) return;
+      all.set(ts, {ts:ts, open:+r[1], high:+r[2], low:+r[3], close:+r[4], volContracts:+r[5], volBase:+r[6], volQuote:+r[7], confirm:r[8]});
+    });
+    const oldest = rows.reduce((m,r) => Math.min(m, Number(r[0])), Infinity);
+    if (!Number.isFinite(oldest) || oldest <= 0 || oldest === before) break;
+    before = String(oldest);
+    if (rows.length < M3_CONFIG.pageLimit) break;
+  }
+  return Array.from(all.values()).sort((a,b) => a.ts-b.ts).slice(-target);
+}
+
+function M3_addIndicators_(candles) {
+  const closes = candles.map(c=>c.close);
+  const ema20 = M3_emaSeries_(closes,20), ema50 = M3_emaSeries_(closes,50), ema200 = M3_emaSeries_(closes,200);
+  const rsi = M3_rsiSeries_(closes,14);
+  const ema12 = M3_emaSeries_(closes,12), ema26 = M3_emaSeries_(closes,26);
+  const macd = closes.map((_,i)=> (ema12[i] == null || ema26[i] == null) ? null : ema12[i]-ema26[i]);
+  const signal = M3_emaSeries_(macd.map(v=>v==null?0:v),9);
+  const tr = candles.map((c,i)=>i===0?c.high-c.low:Math.max(c.high-c.low,Math.abs(c.high-candles[i-1].close),Math.abs(c.low-candles[i-1].close)));
+  const atr = M3_smaSeries_(tr,14);
+  const obv = []; let runningObv=0;
+  candles.forEach((c,i)=>{if(i>0){if(c.close>candles[i-1].close)runningObv+=c.volBase;else if(c.close<candles[i-1].close)runningObv-=c.volBase;}obv.push(runningObv);});
+  const volAvg = M3_smaSeries_(candles.map(c=>c.volBase),20);
+  return candles.map((c,i)=>Object.assign({},c,{
+    state: c.close>c.open?'G':(c.close<c.open?'R':'D'),
+    ema20:ema20[i], ema50:ema50[i], ema200:ema200[i], rsi14:rsi[i],
+    macdHist:macd[i]==null||signal[i]==null?null:macd[i]-signal[i],
+    atr14:atr[i],
+    atr14Pct:atr[i]==null||!c.close?null:atr[i]/c.close,
+    obv:obv[i], volumeVsAvg20:volAvg[i] ? c.volBase/volAvg[i] : null
+  }));
+}
+
+function M3_buildStats_(candles) {
+  const triples={}, patterns={};
+  for(let i=3;i<candles.length;i++) {
+    const triple=candles.slice(i-3,i).map(c=>c.state).join('');
+    const outcome=candles[i].state;
+    if (/^[GR]{3}$/.test(triple) && /^[GR]$/.test(outcome)) {
+      if(!triples[triple]) triples[triple]={n:0,g:0,r:0};
+      triples[triple].n++; if(outcome==='G')triples[triple].g++;else triples[triple].r++;
+    }
+    if(i>=5) {
+      const p5=candles.slice(i-5,i).map(c=>c.state).join('');
+      if(/^[GR]{5}$/.test(p5) && /^[GR]$/.test(outcome)) {
+        if(!patterns[p5])patterns[p5]={n:0,g:0,r:0};
+        patterns[p5].n++;if(outcome==='G')patterns[p5].g++;else patterns[p5].r++;
+      }
+    }
+  }
+  return {triples:triples,patterns:patterns};
+}
+
+function M3_evaluate_(candles, stats) {
+  const last=candles[candles.length-1], triple=candles.slice(-3).map(c=>c.state).join(''), five=candles.slice(-5).map(c=>c.state).join('');
+  const st=stats.triples[triple] || {n:0,g:0,r:0};
+  const pG=(st.g+1)/(st.n+2), pR=(st.r+1)/(st.n+2);
+  const lowG=M3_wilsonLower_(st.g,st.n), lowR=M3_wilsonLower_(st.r,st.n);
+  const reasons=[]; let side=null;
+  if(!/^[GR]{3}$/.test(triple)) reasons.push('LATEST_3_CANDLES_CONTAIN_DOJI');
+  if(st.n<M3_CONFIG.minTripleSamples) reasons.push('INSUFFICIENT_TRIPLE_SAMPLE');
+  const candidate = pG>=pR ? 'LONG' : 'SHORT';
+  const pDir = candidate==='LONG'?pG:pR;
+  const lower = candidate==='LONG'?lowG:lowR;
+  if(pDir<M3_CONFIG.minProbability) reasons.push('PROBABILITY_BELOW_THRESHOLD');
+  if(M3_CONFIG.requireWilsonLowerAbove50 && lower<=0.50) reasons.push('WILSON_LOWER_NOT_ABOVE_50');
+  if(last.ema20==null||last.ema50==null||last.ema200==null||last.rsi14==null||last.macdHist==null||last.atr14Pct==null) reasons.push('INDICATORS_NOT_READY');
+  if(last.atr14Pct!=null && (last.atr14Pct<M3_CONFIG.minAtrPct||last.atr14Pct>M3_CONFIG.maxAtrPct)) reasons.push('ATR_OUTSIDE_ALLOWED_RANGE');
+  if(last.volumeVsAvg20!=null && last.volumeVsAvg20<M3_CONFIG.minVolumeVsAvg20) reasons.push('VOLUME_TOO_LOW');
+  if(candidate==='LONG') {
+    if(!(last.ema20>last.ema50 && last.ema50>last.ema200)) reasons.push('EMA_TREND_NOT_BULLISH');
+    if(!(last.rsi14>50 && last.rsi14<75)) reasons.push('RSI_NOT_CONFIRMING_LONG');
+    if(!(last.macdHist>0)) reasons.push('MACD_NOT_CONFIRMING_LONG');
+  } else {
+    if(!(last.ema20<last.ema50 && last.ema50<last.ema200)) reasons.push('EMA_TREND_NOT_BEARISH');
+    if(!(last.rsi14<50 && last.rsi14>25)) reasons.push('RSI_NOT_CONFIRMING_SHORT');
+    if(!(last.macdHist<0)) reasons.push('MACD_NOT_CONFIRMING_SHORT');
+  }
+  const windows={};
+  M3_CONFIG.recentWindows.forEach(w=>{
+    const sample=candles.slice(-w); const valid=sample.filter(c=>c.state==='G'||c.state==='R');
+    windows[w]=valid.length?valid.filter(c=>c.state==='G').length/valid.length:null;
+  });
+  [36,72].forEach(w=>{
+    if(windows[w]!=null && candidate==='LONG' && windows[w]<=0.5) reasons.push('WINDOW_'+w+'_NOT_BULLISH');
+    if(windows[w]!=null && candidate==='SHORT' && windows[w]>=0.5) reasons.push('WINDOW_'+w+'_NOT_BEARISH');
+  });
+  if(reasons.length===0) side=candidate;
+  const score=M3_computeSignalScore_(candles,stats,candidate,triple,false);
+  return {ts:last.ts, evaluatedAt:Date.now(), instrument:M3_CONFIG.instrument, triple:triple, five:five, n:st.n,g:st.g,r:st.r,pG:pG,pR:pR,lowG:lowG,lowR:lowR,side:side,decision:side?'PAPER_'+side:'NO_SIGNAL',reasons:reasons,last:last,windows:windows,pDirection:side==='LONG'?pG:(side==='SHORT'?pR:null),signalScore:score.total,scoreMarkov:score.markov,scoreTrend:score.trend,scoreMomentum:score.momentum,scoreRecentBehavior:score.recentBehavior,scoreMarketConditions:score.marketConditions,scoreDirection:candidate};
+}
+
+/**
+ * Provisional PRE-SIGNAL warning. It uses the current, still-open 4H candle
+ * only for a heuristic score; it never changes the final signal rules and
+ * never creates a paper trade. One successful warning per candle/direction.
+ */
+function M3_checkPreSignal_() {
+  if (!M3_CONFIG.enablePreSignalWarnings) return;
+  try {
+    const now=Date.now();
+    const stored=M3_readStoredCandles_();
+    if(stored.length<300) return;
+    const live=M3_fetchLiveCandle_();
+    if(!live) return;
+    const lastClosed=stored[stored.length-1];
+    if(Number(live.ts)!==Number(lastClosed.ts)+4*60*60*1000) return;
+    const msToClose=live.ts+4*60*60*1000-now;
+    const minutesToClose=msToClose/60000;
+    if(minutesToClose<=0 || minutesToClose>M3_CONFIG.preSignalMinutesBeforeClose) return;
+
+    const closedEnriched=M3_addIndicators_(stored);
+    const stats=M3_buildStats_(closedEnriched);
+    const allEnriched=M3_addIndicators_(stored.concat([live]));
+    const triple=closedEnriched.slice(-3).map(c=>c.state).join('');
+    if(!/^[GR]{3}$/.test(triple)) return;
+    const st=stats.triples[triple]||{n:0,g:0,r:0};
+    const pG=(st.g+1)/(st.n+2), pR=(st.r+1)/(st.n+2);
+    const candidate=pG>=pR?'LONG':'SHORT';
+    const pDir=candidate==='LONG'?pG:pR;
+    const lower=candidate==='LONG'?M3_wilsonLower_(st.g,st.n):M3_wilsonLower_(st.r,st.n);
+    // Keep the Markov precondition aligned with the existing strategy; this is still not an entry.
+    if(st.n<M3_CONFIG.minTripleSamples || pDir<M3_CONFIG.minProbability) return;
+    if(M3_CONFIG.requireWilsonLowerAbove50 && lower<=0.50) return;
+
+    const score=M3_computeSignalScore_(allEnriched,stats,candidate,triple,true);
+    if(score.total<M3_CONFIG.preSignalMinScore) return;
+    const key=String(live.ts)+'_'+candidate;
+    const sentKeys=M3_getPreSignalKeys_();
+    if(sentKeys.indexOf(key)!==-1) return;
+    const remaining=Math.max(0,Math.ceil(minutesToClose));
+    const msg='🔔 BTC MARKOV — PRE-SIGNAL\n⚠️ WARNING ONLY — NOT AN ENTRY / NOT A TRADE\n\nInstrument: '+M3_CONFIG.instrument+' · 4H\nPossible direction: '+candidate+'\nProvisional Signal Score: '+score.total.toFixed(1)+'/100\nTime to candle close: ~'+remaining+' minutes\nMarkov triple (last 3 closed candles): '+triple+' (N='+st.n+')\nDirectional Markov probability: '+(100*pDir).toFixed(1)+'%\n\nScore components (heuristic): Markov '+score.markov.toFixed(1)+'/35; trend '+score.trend.toFixed(1)+'/20; momentum '+score.momentum.toFixed(1)+'/15; recent behavior '+score.recentBehavior.toFixed(1)+'/15; market conditions '+score.marketConditions.toFixed(1)+'/15.\n\nThe current candle is still open; indicators and direction may change. Score is NOT a probability of profit. No paper trade is opened by this warning. Final evaluation occurs after the candle closes.';
+    if(M3_telegram_(msg)) {
+      sentKeys.push(key);
+      M3_savePreSignalKeys_(sentKeys,live.ts);
+      M3_log_('INFO','PRE_SIGNAL_SENT',JSON.stringify({candleTs:live.ts,direction:candidate,score:score.total,minutesToClose:minutesToClose,triple:triple,n:st.n}));
+    }
+  } catch(e) {
+    M3_log_('WARN','PRE_SIGNAL_CHECK_FAILED',String(e && e.stack ? e.stack : e));
+    // A provisional-warning failure must never prevent normal closed-candle processing.
+  }
+}
+
+function M3_fetchLiveCandle_() {
+  const url='https://www.okx.com/api/v5/market/candles?instId='+encodeURIComponent(M3_CONFIG.instrument)+'&bar='+encodeURIComponent(M3_CONFIG.bar)+'&limit=5';
+  const resp=UrlFetchApp.fetch(url,{muteHttpExceptions:true});
+  if(resp.getResponseCode()!==200) throw new Error('OKX live candles HTTP '+resp.getResponseCode());
+  const json=JSON.parse(resp.getContentText());
+  if(json.code!=='0') throw new Error('OKX live candles error '+json.code+' '+json.msg);
+  const now=Date.now();
+  const r=(json.data||[]).find(x=>x[8]==='0' && Number(x[0])<=now && Number(x[0])+4*60*60*1000>now);
+  if(!r) return null;
+  const c={ts:Number(r[0]),open:+r[1],high:+r[2],low:+r[3],close:+r[4],volContracts:+r[5],volBase:+r[6],volQuote:+r[7],confirm:r[8]};
+  if(!(c.open>0&&c.high>0&&c.low>0&&c.close>0) || c.high<Math.max(c.open,c.close,c.low) || c.low>Math.min(c.open,c.close,c.high)) return null;
+  return c;
+}
+
+function M3_readStoredCandles_() {
+  const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(M3_CONFIG.sheets.candles);
+  if(!sh || sh.getLastRow()<2) return [];
+  const start=Math.max(2,sh.getLastRow()-M3_CONFIG.candleTarget+1);
+  const rows=sh.getRange(start,1,sh.getLastRow()-start+1,20).getValues();
+  return rows.filter(r=>Number(r[0])>0).map(r=>({ts:Number(r[0]),open:Number(r[3]),high:Number(r[4]),low:Number(r[5]),close:Number(r[6]),volContracts:Number(r[7]),volBase:Number(r[8]),volQuote:Number(r[9]),confirm:String(r[10])})).sort((a,b)=>a.ts-b.ts);
+}
+
+function M3_computeSignalScore_(candles,stats,candidate,tripleOverride,isProvisional) {
+  const last=candles[candles.length-1];
+  const triple=tripleOverride || candles.slice(-3).map(c=>c.state).join('');
+  const st=stats.triples[triple]||{n:0,g:0,r:0};
+  const pDir=candidate==='LONG'?(st.g+1)/(st.n+2):(st.r+1)/(st.n+2);
+  const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+  const probPart=clamp((pDir-0.5)/0.25,0,1)*20;
+  const samplePart=clamp(st.n/Math.max(1,M3_CONFIG.minTripleSamples),0,1)*15;
+  const markov=probPart+samplePart;
+
+  const isLong=candidate==='LONG';
+  let trend=0;
+  if(last.ema20!=null&&last.ema50!=null&&((isLong&&last.ema20>last.ema50)||(!isLong&&last.ema20<last.ema50))) trend+=8;
+  if(last.ema50!=null&&last.ema200!=null&&((isLong&&last.ema50>last.ema200)||(!isLong&&last.ema50<last.ema200))) trend+=7;
+  if(last.ema20!=null&&((isLong&&last.close>last.ema20)||(!isLong&&last.close<last.ema20))) trend+=5;
+
+  let momentum=0;
+  if(last.rsi14!=null) {
+    if(isLong) momentum+=(last.rsi14>50&&last.rsi14<75)?8:((last.rsi14>45&&last.rsi14<80)?4:0);
+    else momentum+=(last.rsi14<50&&last.rsi14>25)?8:((last.rsi14<55&&last.rsi14>20)?4:0);
+  }
+  if(last.macdHist!=null && ((isLong&&last.macdHist>0)||(!isLong&&last.macdHist<0))) momentum+=7;
+
+  let recentBehavior=0;
+  [12,36,72].forEach(w=>{
+    const sample=candles.slice(-w).filter(c=>c.state==='G'||c.state==='R');
+    if(!sample.length) return;
+    const green=sample.filter(c=>c.state==='G').length/sample.length;
+    if(isLong) recentBehavior += green>0.55?5:(green>0.5?3:0);
+    else recentBehavior += green<0.45?5:(green<0.5?3:0);
+  });
+
+  let marketConditions=0;
+  if(last.atr14Pct!=null) {
+    if(last.atr14Pct>=M3_CONFIG.minAtrPct && last.atr14Pct<=M3_CONFIG.maxAtrPct) marketConditions+=8;
+    else if(last.atr14Pct>=M3_CONFIG.minAtrPct*0.8 && last.atr14Pct<=M3_CONFIG.maxAtrPct*1.2) marketConditions+=4;
+  }
+  let volumeRatio=last.volumeVsAvg20;
+  if(isProvisional && volumeRatio!=null) {
+    const elapsedFraction=clamp((Date.now()-last.ts)/(4*60*60*1000),0.01,1);
+    volumeRatio=volumeRatio/elapsedFraction; // rough projection; only used close to candle end
+  }
+  if(volumeRatio!=null) {
+    if(volumeRatio>=M3_CONFIG.minVolumeVsAvg20) marketConditions+=7;
+    else if(volumeRatio>=M3_CONFIG.minVolumeVsAvg20*0.75) marketConditions+=3.5;
+  }
+  const total=Math.round(clamp(markov+trend+momentum+recentBehavior+marketConditions,0,100)*10)/10;
+  return {total:total,markov:Math.round(markov*10)/10,trend:Math.round(trend*10)/10,momentum:Math.round(momentum*10)/10,recentBehavior:Math.round(recentBehavior*10)/10,marketConditions:Math.round(marketConditions*10)/10};
+}
+
+function M3_getPreSignalKeys_() {
+  const raw=PropertiesService.getScriptProperties().getProperty('M3_PRE_SIGNAL_SENT_KEYS');
+  if(!raw) return [];
+  try { const parsed=JSON.parse(raw); return Array.isArray(parsed)?parsed.map(String):[]; } catch(e) { return []; }
+}
+function M3_savePreSignalKeys_(keys,currentCandleTs) {
+  const cutoff=Number(currentCandleTs)-10*24*60*60*1000;
+  const recent=keys.filter(k=>{const ts=Number(String(k).split('_')[0]);return Number.isFinite(ts)&&ts>=cutoff;}).slice(-100);
+  PropertiesService.getScriptProperties().setProperty('M3_PRE_SIGNAL_SENT_KEYS',JSON.stringify(recent));
+}
+
+function M3_openPaperTradeIfValid_(r, signalCandle) {
+  if(!r.side) return;
+  const props=PropertiesService.getScriptProperties();
+  const existingRaw=props.getProperty('M3_ACTIVE_TRADE');
+  if(existingRaw) {
+    const existing=JSON.parse(existingRaw);
+    if(String(existing.signalTs)===String(signalCandle.ts)) M3_sendEntryAlertOnce_(existing,r.n,r.pDirection);
+    else M3_log_('INFO','ENTRY_SKIPPED','Existing paper position is still open.');
+    return;
+  }
+  const atr=Number(signalCandle.atr14 || (signalCandle.atr14Pct*signalCandle.close));
+  if(!(atr>0)) { M3_log_('WARN','ENTRY_SKIPPED','ATR is invalid; cannot calculate SL/TP.'); return; }
+  const ticker=M3_fetchTicker_();
+  const equity=Number(props.getProperty('M3_PAPER_EQUITY')||M3_CONFIG.initialEquityUSDT);
+  const margin=equity*M3_CONFIG.marginPctOfEquity;
+  const notional=margin*M3_CONFIG.leverage;
+  const direction=r.side==='LONG'?1:-1;
+  const stopPrice=ticker-direction*M3_CONFIG.stopAtrMultiple*atr;
+  const target1Price=ticker+direction*M3_CONFIG.target1AtrMultiple*atr;
+  const target2Price=ticker+direction*M3_CONFIG.target2AtrMultiple*atr;
+  const entryFee=notional*M3_CONFIG.takerFeeRate;
+  const trade={
+    id:'M3-'+signalCandle.ts,status:'OPEN',side:r.side,signalTs:signalCandle.ts,entryTs:Date.now(),entryPrice:ticker,
+    leverage:M3_CONFIG.leverage,margin:margin,notional:notional,remainingFraction:1,tp1Hit:false,
+    stopPrice:stopPrice,initialStopPrice:stopPrice,target1Price:target1Price,target2Price:target2Price,atrAtEntry:atr,
+    triple:r.triple,pDirection:r.pDirection,signalScore:r.signalScore,scoreMarkov:r.scoreMarkov,scoreTrend:r.scoreTrend,scoreMomentum:r.scoreMomentum,scoreRecentBehavior:r.scoreRecentBehavior,scoreMarketConditions:r.scoreMarketConditions,entryEquity:equity,n:r.n,entryFee:entryFee,exitFees:0,
+    candlesHeld:0,lastEvaluatedCandleTs:signalCandle.ts
+  };
+  // Charge entry commission immediately; collateral/margin itself is not deducted from equity.
+  props.setProperty('M3_PAPER_EQUITY',String(equity-entryFee));
+  props.setProperty('M3_ACTIVE_TRADE',JSON.stringify(trade));
+  M3_appendTradeRecord_({
+    trade_id:trade.id,status:'OPEN',side:trade.side,signal_candle_timestamp_utc:new Date(trade.signalTs).toISOString(),
+    entry_timestamp_utc:new Date(trade.entryTs).toISOString(),entry_price:trade.entryPrice,leverage:trade.leverage,
+    margin_usdt:trade.margin,notional_usdt:trade.notional,equity_after_usdt:equity-entryFee,triple:trade.triple,p_direction:trade.pDirection,
+    atr_at_entry:trade.atrAtEntry,stop_price:trade.stopPrice,target1_price:trade.target1Price,target2_price:trade.target2Price,
+    tp1_hit:false,remaining_fraction:1,realized_gross_pnl_usdt:0,entry_fee_usdt:entryFee,exit_fees_usdt:0,
+    entry_signal_score:trade.signalScore,entry_score_markov:trade.scoreMarkov,entry_score_trend:trade.scoreTrend,entry_score_momentum:trade.scoreMomentum,entry_score_recent_behavior:trade.scoreRecentBehavior,entry_score_market_conditions:trade.scoreMarketConditions
+  });
+  M3_sendEntryAlertOnce_(trade,r.n,r.pDirection);
+}
+
+function M3_sendEntryAlertOnce_(trade, sampleN, pDirection) {
+  const props=PropertiesService.getScriptProperties();
+  const alertedTs=props.getProperty('M3_LAST_ALERTED_SIGNAL_CANDLE_TS');
+  if(String(alertedTs)===String(trade.signalTs)) return true;
+  const dir=trade.side==='LONG'?1:-1;
+  const rr1=(Math.abs(trade.target1Price-trade.entryPrice)/Math.abs(trade.entryPrice-trade.initialStopPrice));
+  const rr2=(Math.abs(trade.target2Price-trade.entryPrice)/Math.abs(trade.entryPrice-trade.initialStopPrice));
+  const msg='🧪 BTC SWAP PAPER — NEW '+trade.side+'\nInstrument: '+M3_CONFIG.instrument+' · 4H\nSignal candle: '+new Date(trade.signalTs).toISOString()+'\nEntry: '+M3_fmtPrice_(trade.entryPrice)+' USDT\nATR(14): '+M3_fmtPrice_(trade.atrAtEntry)+' USDT\n\n🛑 Initial Stop Loss: '+M3_fmtPrice_(trade.initialStopPrice)+' USDT ('+M3_CONFIG.stopAtrMultiple+' × ATR)\n🎯 Target 1: '+M3_fmtPrice_(trade.target1Price)+' USDT ('+M3_CONFIG.target1AtrMultiple+' × ATR; close '+(100*M3_CONFIG.target1CloseFraction)+'%)\n🎯 Target 2: '+M3_fmtPrice_(trade.target2Price)+' USDT ('+M3_CONFIG.target2AtrMultiple+' × ATR; close remaining)\nAfter TP1: move stop on remaining size to break-even ('+M3_fmtPrice_(trade.entryPrice)+' USDT)\nMax holding time: '+M3_CONFIG.maxHoldCandles+' completed 4H candle(s)\n\nSide: '+trade.side+'\nLeverage: '+trade.leverage+'x isolated simulation\nMargin: '+trade.margin.toFixed(2)+' USDT\nNotional: '+trade.notional.toFixed(2)+' USDT\nEstimated entry fee: '+trade.entryFee.toFixed(4)+' USDT\nP(direction): '+(100*Number(pDirection||trade.pDirection)).toFixed(1)+'%\nMarkov triple: '+trade.triple+' (N='+Number(sampleN||trade.n||0)+')\nSignal Score: '+(trade.signalScore==null?'N/A':Number(trade.signalScore).toFixed(1)+'/100')+' (heuristic alignment score, not win probability)\nExecution: PAPER ONLY — no real order sent.\nCandle conflict policy: stop-first, conservative OHLC simulation.';
+  const sent=M3_telegram_(msg);
+  if(sent) {
+    props.setProperty('M3_LAST_ALERTED_SIGNAL_CANDLE_TS',String(trade.signalTs));
+    M3_log_('INFO','ENTRY_ALERT_SENT','signalCandleTs='+trade.signalTs);
+    return true;
+  }
+  M3_log_('WARN','ENTRY_ALERT_PENDING','Telegram send not confirmed; a later 5m/15m check may retry for this same trade.');
+  return false;
+}
+
+function M3_retryPendingEntryAlert_() {
+  const props=PropertiesService.getScriptProperties();
+  const raw=props.getProperty('M3_ACTIVE_TRADE');
+  if(!raw) return;
+  const trade=JSON.parse(raw);
+  if(String(props.getProperty('M3_LAST_ALERTED_SIGNAL_CANDLE_TS'))===String(trade.signalTs)) return;
+  M3_sendEntryAlertOnce_(trade,trade.n,trade.pDirection);
+}
+
+/**
+ * Process the newly completed candle against the active simulated position.
+ * OHLC cannot reveal the order of intrabar events, so any stop touched in a
+ * candle takes precedence over targets. After TP1, a same-candle break-even
+ * touch is treated as a break-even stop before considering TP2.
+ */
+function M3_closeDuePaperTrade_(candle) {
+  const props=PropertiesService.getScriptProperties();
+  const raw=props.getProperty('M3_ACTIVE_TRADE'); if(!raw) return;
+  const t=JSON.parse(raw);
+  if(candle.ts<=Number(t.lastEvaluatedCandleTs||t.signalTs)) return;
+  const isLong=t.side==='LONG', dir=isLong?1:-1;
+  t.candlesHeld=Number(t.candlesHeld||0)+1;
+  t.lastEvaluatedCandleTs=candle.ts;
+
+  // Stop-first handling is deliberately conservative when candle high/low crosses both sides.
+  if(M3_stopTouched_(t,candle)) {
+    M3_exitRemaining_(t,t.stopPrice,candle.ts,'STOP_LOSS');
+    return;
+  }
+
+  if(!t.tp1Hit && M3_targetTouched_(t,candle,t.target1Price)) {
+    M3_realizeFraction_(t,M3_CONFIG.target1CloseFraction,t.target1Price,candle.ts,'TARGET_1');
+    t.tp1Hit=true;
+    t.stopPrice=t.entryPrice; // move stop to break-even for the remaining half
+    M3_updateTradeRecord_(t.id,{status:'PARTIAL_TP1',tp1_hit:true,stop_price:t.stopPrice,remaining_fraction:t.remainingFraction,realized_gross_pnl_usdt:t.realizedGross,exit_fees_usdt:t.exitFees,equity_after_usdt:Number(props.getProperty('M3_PAPER_EQUITY')||0)});
+    M3_telegram_('🧪 BTC SWAP PAPER — TARGET 1 HIT\nSide: '+t.side+'\nTarget 1 fill: '+M3_fmtPrice_(t.target1Price)+' USDT\nClosed: '+(100*M3_CONFIG.target1CloseFraction)+'%\nGross realized PnL: '+t.realizedGross.toFixed(4)+' USDT\nRemaining: '+(100*t.remainingFraction).toFixed(1)+'%\nStop moved to break-even: '+M3_fmtPrice_(t.entryPrice)+' USDT');
+
+    // If this candle also crossed the new break-even stop, use the conservative outcome.
+    if(M3_stopTouched_(t,candle)) {
+      M3_exitRemaining_(t,t.entryPrice,candle.ts,'BREAKEVEN_STOP_AFTER_TP1');
+      return;
+    }
+  }
+
+  if(t.tp1Hit && M3_targetTouched_(t,candle,t.target2Price)) {
+    M3_exitRemaining_(t,t.target2Price,candle.ts,'TARGET_2');
+    return;
+  }
+
+  if(t.candlesHeld>=M3_CONFIG.maxHoldCandles) {
+    M3_exitRemaining_(t,candle.close,candle.ts,'MAX_HOLD_4H_CLOSE');
+    return;
+  }
+  props.setProperty('M3_ACTIVE_TRADE',JSON.stringify(t));
+}
+
+function M3_stopTouched_(t,c) {
+  return t.side==='LONG' ? c.low<=t.stopPrice : c.high>=t.stopPrice;
+}
+function M3_targetTouched_(t,c,target) {
+  return t.side==='LONG' ? c.high>=target : c.low<=target;
+}
+
+function M3_realizeFraction_(t,fraction,price,ts,reason) {
+  const props=PropertiesService.getScriptProperties();
+  const qtyFraction=Math.min(Number(fraction),Number(t.remainingFraction));
+  if(qtyFraction<=0) return;
+  const notionalAtEntry=t.notional*qtyFraction;
+  const direction=t.side==='LONG'?1:-1;
+  const gross=notionalAtEntry*((price-t.entryPrice)/t.entryPrice)*direction;
+  const exitNotional=notionalAtEntry*(price/t.entryPrice);
+  const exitFee=exitNotional*M3_CONFIG.takerFeeRate;
+  t.realizedGross=Number(t.realizedGross||0)+gross;
+  t.exitFees=Number(t.exitFees||0)+exitFee;
+  t.remainingFraction=Math.max(0,Number(t.remainingFraction)-qtyFraction);
+  const equity=Number(props.getProperty('M3_PAPER_EQUITY')||t.entryEquity)+gross-exitFee;
+  props.setProperty('M3_PAPER_EQUITY',String(equity));
+  M3_log_('INFO','PAPER_PARTIAL_EXIT',JSON.stringify({tradeId:t.id,reason:reason,price:price,fraction:qtyFraction,gross:gross,exitFee:exitFee,equity:equity}));
+}
+
+function M3_exitRemaining_(t,price,ts,reason) {
+  const props=PropertiesService.getScriptProperties();
+  if(Number(t.remainingFraction)>0) M3_realizeFraction_(t,Number(t.remainingFraction),price,ts,reason);
+  const equity=Number(props.getProperty('M3_PAPER_EQUITY')||t.entryEquity);
+  const totalFees=Number(t.entryFee||0)+Number(t.exitFees||0);
+  const net=Number(t.realizedGross||0)-totalFees;
+  const status=reason==='TARGET_2'?'CLOSED_TP2':(reason==='STOP_LOSS'?'CLOSED_SL':(reason==='BREAKEVEN_STOP_AFTER_TP1'?'CLOSED_BE':'CLOSED_TIME'));
+  M3_updateTradeRecord_(t.id,{
+    status:status,exit_timestamp_utc:new Date(ts).toISOString(),exit_price:price,gross_pnl_usdt:t.realizedGross,
+    fees_usdt:totalFees,net_pnl_usdt:net,equity_after_usdt:equity,exit_reason:reason,
+    tp1_hit:Boolean(t.tp1Hit),remaining_fraction:0,realized_gross_pnl_usdt:t.realizedGross,
+    entry_fee_usdt:t.entryFee,exit_fees_usdt:t.exitFees,stop_price:t.stopPrice
+  });
+  props.deleteProperty('M3_ACTIVE_TRADE');
+  M3_telegram_('🧪 BTC SWAP PAPER — POSITION CLOSED\nSide: '+t.side+'\nReason: '+reason+'\nEntry: '+M3_fmtPrice_(t.entryPrice)+' USDT\nExit: '+M3_fmtPrice_(price)+' USDT\nTP1 reached: '+(t.tp1Hit?'YES':'NO')+'\nGross realized PnL: '+Number(t.realizedGross||0).toFixed(4)+' USDT\nTotal fees (entry + exits): '+totalFees.toFixed(4)+' USDT\nNet PnL: '+net.toFixed(4)+' USDT\nPaper equity: '+equity.toFixed(2)+' USDT');
+}
+
+function M3_appendTradeRecord_(record) {
+  const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(M3_CONFIG.sheets.trades);
+  const headers=sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(String);
+  sh.appendRow(headers.map(h=>Object.prototype.hasOwnProperty.call(record,h)?record[h]:''));
+}
+function M3_updateTradeRecord_(tradeId,updates) {
+  const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(M3_CONFIG.sheets.trades);
+  if(sh.getLastRow()<2) return;
+  const headers=sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(String);
+  const idCol=headers.indexOf('trade_id')+1;
+  if(idCol<1) return;
+  const ids=sh.getRange(2,idCol,sh.getLastRow()-1,1).getValues().flat();
+  const idx=ids.lastIndexOf(tradeId); if(idx<0) return;
+  const row=idx+2;
+  Object.keys(updates).forEach(key=>{const col=headers.indexOf(key)+1;if(col>0)sh.getRange(row,col).setValue(updates[key]);});
+}
+function M3_fmtPrice_(value) {
+  return Number(value).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
+function M3_fetchTicker_() {
+  const url='https://www.okx.com/api/v5/market/ticker?instId='+encodeURIComponent(M3_CONFIG.instrument);
+  const resp=UrlFetchApp.fetch(url,{muteHttpExceptions:true});
+  if(resp.getResponseCode()!==200) throw new Error('OKX ticker HTTP '+resp.getResponseCode());
+  const json=JSON.parse(resp.getContentText());
+  if(json.code!=='0'||!json.data||!json.data.length) throw new Error('OKX ticker error '+json.msg);
+  const px=Number(json.data[0].last); if(!(px>0)) throw new Error('Invalid OKX ticker price');
+  return px;
+}
+
+function M3_writeCandles_(candles) {
+  const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(M3_CONFIG.sheets.candles);
+  const old=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,1).getValues().flat():[];
+  const existing=new Set(old.map(Number));
+  const rows=candles.filter(c=>!existing.has(c.ts)).map(c=>[c.ts,new Date(c.ts).toISOString(),M3_CONFIG.instrument,c.open,c.high,c.low,c.close,c.volContracts,c.volBase,c.volQuote,c.confirm,c.state,c.ema20,c.ema50,c.ema200,c.rsi14,c.macdHist,c.atr14Pct,c.obv,c.volumeVsAvg20]);
+  if(rows.length) sh.getRange(sh.getLastRow()+1,1,rows.length,rows[0].length).setValues(rows);
+}
+
+function M3_writeStats_(stats) {
+  const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(M3_CONFIG.sheets.stats);
+  M3_replaceBody_(sh, Object.keys(stats.triples).sort().map(k=>{const s=stats.triples[k];return [k,s.n,s.g,s.r,(s.g+1)/(s.n+2),(s.r+1)/(s.n+2),M3_wilsonLower_(s.g,s.n),M3_wilsonLower_(s.r,s.n)];}));
+  const ph=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(M3_CONFIG.sheets.patterns);
+  M3_replaceBody_(ph,Object.keys(stats.patterns).sort().map(k=>{const s=stats.patterns[k];return [k,s.n,s.g,s.r,(s.g+1)/(s.n+2),(s.r+1)/(s.n+2)];}));
+}
+
+function M3_writeSignal_(r) {
+  const record={
+    evaluated_utc:new Date(r.evaluatedAt).toISOString(),candle_timestamp_utc:new Date(r.ts).toISOString(),instrument:r.instrument,
+    last_triple:r.triple,last_five:r.five,n_triple:r.n,next_G:r.g,next_R:r.r,pG_laplace:r.pG,pR_laplace:r.pR,
+    wilsonLowerG95:r.lowG,wilsonLowerR95:r.lowR,ema20:r.last.ema20,ema50:r.last.ema50,ema200:r.last.ema200,
+    rsi14:r.last.rsi14,macd_hist:r.last.macdHist,atr14_pct:r.last.atr14Pct,volume_vs_avg20:r.last.volumeVsAvg20,
+    window12_green_pct:r.windows[12],window36_green_pct:r.windows[36],window72_green_pct:r.windows[72],
+    decision:r.decision,reasons:r.reasons.join('|'),signal_score:r.signalScore,score_markov:r.scoreMarkov,
+    score_trend:r.scoreTrend,score_momentum:r.scoreMomentum,score_recent_behavior:r.scoreRecentBehavior,
+    score_market_conditions:r.scoreMarketConditions,score_direction:r.scoreDirection
+  };
+  const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(M3_CONFIG.sheets.signals);
+  const headers=sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(String);
+  sh.appendRow(headers.map(h=>Object.prototype.hasOwnProperty.call(record,h)?record[h]:''));
+}
+
+function M3_emaSeries_(values, period) {
+  const out=Array(values.length).fill(null); if(values.length<period)return out;
+  const k=2/(period+1); let ema=values.slice(0,period).reduce((a,b)=>a+b,0)/period; out[period-1]=ema;
+  for(let i=period;i<values.length;i++){ema=values[i]*k+ema*(1-k);out[i]=ema;} return out;
+}
+function M3_smaSeries_(values, period) {
+  const out=Array(values.length).fill(null); let sum=0;
+  for(let i=0;i<values.length;i++){sum+=values[i];if(i>=period)sum-=values[i-period];if(i>=period-1)out[i]=sum/period;} return out;
+}
+function M3_rsiSeries_(closes, period) {
+  const out=Array(closes.length).fill(null); if(closes.length<=period)return out;
+  let gains=0,losses=0; for(let i=1;i<=period;i++){const d=closes[i]-closes[i-1];gains+=Math.max(0,d);losses+=Math.max(0,-d);}
+  let avgG=gains/period,avgL=losses/period; out[period]=avgL===0?100:100-100/(1+avgG/avgL);
+  for(let i=period+1;i<closes.length;i++){const d=closes[i]-closes[i-1];avgG=(avgG*(period-1)+Math.max(0,d))/period;avgL=(avgL*(period-1)+Math.max(0,-d))/period;out[i]=avgL===0?100:100-100/(1+avgG/avgL);} return out;
+}
+function M3_wilsonLower_(success,n) {
+  if(!n)return 0; const z=1.96,p=success/n,z2=z*z;
+  return (p+z2/(2*n)-z*Math.sqrt((p*(1-p)/n)+(z2/(4*n*n))))/(1+z2/n);
+}
+function M3_replaceBody_(sheet, rows) {
+  if(sheet.getLastRow()>1) sheet.getRange(2,1,sheet.getLastRow()-1,sheet.getLastColumn()).clearContent();
+  if(rows.length) sheet.getRange(2,1,rows.length,rows[0].length).setValues(rows);
+}
+function M3_appendRow_(sheetName,row) {
+  const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
+  sh.getRange(sh.getLastRow()+1,1,1,row.length).setValues([row]);
+}
+function M3_log_(level,event,details) {
+  try { M3_appendRow_(M3_CONFIG.sheets.logs,[new Date().toISOString(),level,event,String(details)]); }
+  catch(e) { console.log(level+' '+event+' '+details); }
+}
+function M3_telegram_(message) {
+  const p=PropertiesService.getScriptProperties();
+  const token=p.getProperty('TELEGRAM_BOT_TOKEN'), chat=p.getProperty('TELEGRAM_CHAT_ID');
+  if(!token||!chat) { M3_log_('WARN','TELEGRAM_NOT_CONFIGURED','Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in Script Properties.'); return false; }
+  const url='https://api.telegram.org/bot'+token+'/sendMessage';
+  const resp=UrlFetchApp.fetch(url,{method:'post',contentType:'application/json',payload:JSON.stringify({chat_id:chat,text:message}),muteHttpExceptions:true});
+  let body={};
+  try { body=JSON.parse(resp.getContentText()); } catch (ignored) {}
+  const ok=resp.getResponseCode()===200 && body.ok===true;
+  if(!ok) M3_log_('ERROR','TELEGRAM_FAILED',resp.getResponseCode()+': '+resp.getContentText().slice(0,200));
+  return ok;
+}
+
+/**
+ * Sends a Telegram alert for a new error signature, or repeats it after 6 hours
+ * if the same error is still occurring. RUN and INTEGRITY_CHECK are tracked
+ * independently to avoid alert storms from every time-driven execution.
+ */
+function M3_sendErrorAlert_(source, detail) {
+  const props=PropertiesService.getScriptProperties();
+  const safeDetail=String(detail||'Unknown error').replace(/\s+/g,' ').slice(0,1200);
+  const fingerprint=source+'|'+safeDetail.slice(0,300);
+  const activeKey='M3_ERROR_ACTIVE_'+source;
+  const sentAtKey='M3_ERROR_ALERT_TS_'+source;
+  const previous=props.getProperty(activeKey)||'';
+  const lastSent=Number(props.getProperty(sentAtKey)||0);
+  const now=Date.now();
+  const repeatAfterMs=6*60*60*1000;
+  if(previous===fingerprint && now-lastSent<repeatAfterMs) return false;
+  const message='⚠️ BTC MARKOV — ERROR ALERT\nSource: '+source+'\nTime (UTC): '+new Date(now).toISOString()+'\nDetails: '+safeDetail+'\nAction: Check Apps Script → Executions and the M3_Logs sheet.';
+  // Persist the throttle before delivery so Telegram/network failures cannot cause an alert storm.
+  props.setProperty(activeKey,fingerprint);
+  props.setProperty(sentAtKey,String(now));
+  try {
+    const sent=M3_telegram_(message);
+    if(sent) M3_log_('ERROR','ERROR_ALERT_SENT',JSON.stringify({source:source,fingerprint:fingerprint}));
+    return sent;
+  } catch (deliveryError) {
+    M3_log_('ERROR','ERROR_ALERT_DELIVERY_FAILED',String(deliveryError && deliveryError.stack ? deliveryError.stack : deliveryError));
+    return false;
+  }
+}
+
+/** Sends a one-time recovery notification after a previously alerted error clears. */
+function M3_clearErrorAlert_(source) {
+  const props=PropertiesService.getScriptProperties();
+  const activeKey='M3_ERROR_ACTIVE_'+source;
+  const previous=props.getProperty(activeKey);
+  if(!previous) return;
+  const sent=M3_telegram_('✅ BTC MARKOV — RECOVERED\nSource: '+source+'\nTime (UTC): '+new Date().toISOString()+'\nA successful execution completed after the previous error.');
+  if(sent) {
+    props.deleteProperty(activeKey);
+    props.deleteProperty('M3_ERROR_ALERT_TS_'+source);
+  }
+}
+
+/** Manually run once to verify Telegram credentials and chat ID. */
+function M3_testTelegram() {
+  const ok=M3_telegram_('✅ BTC Markov Telegram test\nTime (UTC): '+new Date().toISOString()+'\nError alerts are configured to use TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.');
+  if(!ok) throw new Error('Telegram test failed. Check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in Script Properties.');
+  M3_log_('INFO','TELEGRAM_TEST_OK','Test message delivered.');
+}
 
 

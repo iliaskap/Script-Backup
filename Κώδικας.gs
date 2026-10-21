@@ -10545,201 +10545,6 @@ function CA4H_interpretOkxLongShortRatio_(
   };
 }
 
-function CA4H_getOiBias_(derivatives) {
-  if (
-    !derivatives ||
-    derivatives.error ||
-    !derivatives.oi ||
-    !derivatives.market
-  ) {
-    return {
-      label: 'Insufficient data',
-      emoji: '⚪',
-      bias: 'neutral',
-      note: 'Δεν υπάρχουν αρκετά δεδομένα OI.'
-    };
-  }
-
-  const oiChange =
-    derivatives.oi.changePct;
-
-  const priceChange =
-    derivatives.market.priceChangePct;
-
-  if (
-    oiChange == null ||
-    priceChange == null ||
-    !isFinite(Number(oiChange)) ||
-    !isFinite(Number(priceChange))
-  ) {
-    return {
-      label: 'OI baseline',
-      emoji: '⚪',
-      bias: 'neutral',
-      note:
-        'Το OI έχει καταγραφεί ως baseline. ' +
-        'Η αξιολόγηση θα γίνει στην επόμενη μέτρηση.'
-    };
-  }
-
-  const oi =
-    Number(oiChange);
-
-  const price =
-    Number(priceChange);
-
-  const threshold = 0.10;
-
-  if (oi >= threshold && price >= threshold) {
-    return {
-      label: 'Long Build-up',
-      emoji: '🟢',
-      bias: 'bullish',
-      note:
-        'Price ↑ + OI ↑. Νέο positioning στηρίζει την ανοδική κίνηση.'
-    };
-  }
-
-  if (oi >= threshold && price <= -threshold) {
-    return {
-      label: 'Short Build-up',
-      emoji: '🔴',
-      bias: 'bearish',
-      note:
-        'Price ↓ + OI ↑. Πιθανή είσοδος νέων shorts ή αυξανόμενη bearish έκθεση.'
-    };
-  }
-
-  if (oi <= -threshold && price >= threshold) {
-    return {
-      label: 'Short Covering',
-      emoji: '🟡',
-      bias: 'weak_bullish',
-      note:
-        'Price ↑ + OI ↓. Πιθανό κλείσιμο shorts· η άνοδος δεν επιβεβαιώνεται από νέο positioning.'
-    };
-  }
-
-  if (oi <= -threshold && price <= -threshold) {
-    return {
-      label: 'Long Unwinding / Flush',
-      emoji: '🟠',
-      bias: 'bearish',
-      note:
-        'Price ↓ + OI ↓. Πιθανό κλείσιμο ή liquidation longs. Απόφυγε μηχανικό DCA.'
-    };
-  }
-
-  return {
-    label: 'Neutral OI',
-    emoji: '⚪',
-    bias: 'neutral',
-    note:
-      'Η μεταβολή OI είναι μικρή ή δεν επιβεβαιώνει καθαρά την κατεύθυνση της τιμής.'
-  };
-}
-
-function CA4H_getOverallDerivativesClassification_(
-  oiBias,
-  funding,
-  market,
-  okxAnalysis
-) {
-  const priceUp =
-    market &&
-    market.priceChangePct > 0;
-
-  const priceDown =
-    market &&
-    market.priceChangePct < 0;
-
-  const volumeUp =
-    okxAnalysis &&
-    okxAnalysis.volumeConfirmed === true;
-
-  const volumeDown =
-    okxAnalysis &&
-    okxAnalysis.volumeConfirmed === false;
-
-  const fundingRate =
-    funding &&
-    funding.nextFundingRate != null
-      ? Number(funding.nextFundingRate)
-      : funding && funding.latestRate != null
-        ? Number(funding.latestRate)
-        : null;
-
-  const fundingPositive =
-    fundingRate != null && fundingRate > 0;
-
-  const fundingNegative =
-    fundingRate != null && fundingRate < 0;
-
-  if (
-    oiBias.bias === 'bullish' &&
-    priceUp &&
-    volumeUp &&
-    fundingPositive
-  ) {
-    return {
-      label: 'BULLISH CONFIRMATION',
-      emoji: '🟢',
-      direction: 'bullish',
-      note:
-        'OI, τιμή, volume και funding επιβεβαιώνουν ανοδική κίνηση.'
-    };
-  }
-
-  if (
-    oiBias.bias === 'bearish' &&
-    priceDown &&
-    volumeUp &&
-    fundingNegative
-  ) {
-    return {
-      label: 'BEARISH CONFIRMATION',
-      emoji: '🔴',
-      direction: 'bearish',
-      note:
-        'OI, τιμή, volume και funding επιβεβαιώνουν πτωτική κίνηση.'
-    };
-  }
-
-  if (
-    oiBias.bias === 'bearish' &&
-    fundingPositive
-  ) {
-    return {
-      label: 'CONFLICTING SIGNALS',
-      emoji: '🟡',
-      direction: 'neutral',
-      note:
-        'Το OI bias είναι bearish, αλλά το θετικό funding δείχνει long bias. ' +
-        'Χρειάζεται επιβεβαίωση από volume/price action.'
-    };
-  }
-
-  if (
-    oiBias.bias === 'weak_bullish' &&
-    !volumeUp
-  ) {
-    return {
-      label: 'WEAK BULLISH / UNCONFIRMED',
-      emoji: '⚪',
-      direction: 'neutral',
-      note:
-        'Η άνοδος δεν επιβεβαιώνεται από OI ή volume. Κράτησε συντηρητική στάση.'
-    };
-  }
-
-  return {
-    label: 'MIXED / NO CLEAR CONFIRMATION',
-    emoji: '⚪',
-    direction: 'neutral',
-    note:
-      'Funding, OI, τιμή και volume δεν δίνουν συνεπή κατεύθυνση.'
-  };
-}
 
 
 // ---------------------------------------------------------------------------
@@ -13415,7 +13220,7 @@ const CTM_CONFIG = {
   BINANCE_FAPI_BASE: 'https://fapi.binance.com',
   BYBIT_V5_BASE: 'https://api.bybit.com',
   COINGECKO_BASE: 'https://api.coingecko.com/api/v3',
-  GOOGLE_NEWS_RSS: 'https://news.google.com/rss/search',
+  COINGECKO_PRO_BASE: 'https://pro-api.coingecko.com/api/v3',  GOOGLE_NEWS_RSS: 'https://news.google.com/rss/search',
   KRAKEN_FUTURES_BASE: 'https://futures.kraken.com/derivatives/api/v3',
   KRAKEN_CHARTS_BASE: 'https://futures.kraken.com/api/charts/v1',
 
@@ -13466,8 +13271,34 @@ const CTM_CONFIG = {
     HIGH_ATR_4H_PCT: 6.0,
     HIGH_OI_CHANGE_PCT: 5.0,
     EXTREME_FUNDING_PCT_8H: 0.05
-  }
+  },
+  VOLMEX_REST_BASE: 'https://rest-v1.volmex.finance',
+
+  VOLATILITY: {
+  LOW_THRESHOLD: 35,
+  ELEVATED_THRESHOLD: 50,
+  HIGH_THRESHOLD: 65,
+  EXTREME_THRESHOLD: 80,
+
+  LOW_GRID_MULTIPLIER: 0.85,
+  NORMAL_GRID_MULTIPLIER: 1.00,
+  ELEVATED_GRID_MULTIPLIER: 1.25,
+  HIGH_GRID_MULTIPLIER: 1.50,
+  EXTREME_GRID_MULTIPLIER: 1.80
+},
 };
+
+function CTM_getCoinGeckoBase_() {
+  const ctmPlan = String(
+    PropertiesService
+      .getScriptProperties()
+      .getProperty('COINGECKO_API_PLAN') || 'DEMO'
+  ).toUpperCase();
+
+  return ctmPlan === 'PRO'
+    ? CTM_CONFIG.COINGECKO_PRO_BASE
+    : CTM_CONFIG.COINGECKO_BASE;
+}
 
 /**
  * Main function.
@@ -13486,6 +13317,8 @@ function CTM_runMarketTrendReport() {
     ? CTM_fetchNewsSentiment_(ctmRuntimeConfig)
     : CTM_getEmptyNewsData_();
 
+  const ctmCryptoVix = CTM_fetchCryptoVix_();
+
   const ctmMarketRows = [];
   const ctmGridRows = [];
   const ctmAnalysis = [];
@@ -13494,7 +13327,7 @@ function CTM_runMarketTrendReport() {
     try {
       const ctmData = CTM_collectSymbolData_(ctmSymbol, ctmRuntimeConfig);
       const ctmAssessment = CTM_assessMarket_(ctmData, ctmGlobalData, ctmNewsData);
-      const ctmGridPlan = CTM_buildGridPlan_(ctmData, ctmAssessment, ctmRuntimeConfig);
+      const ctmGridPlan = CTM_buildGridPlan_(ctmData,  ctmAssessment,  ctmRuntimeConfig,  ctmCryptoVix);
 
       ctmMarketRows.push(
         CTM_buildTrendRow_(
@@ -13502,8 +13335,9 @@ function CTM_runMarketTrendReport() {
           ctmAssessment,
           ctmGridPlan,
           ctmGlobalData,
-          ctmNewsData
-        )
+          ctmNewsData,
+          ctmCryptoVix
+      )
       );
 
       ctmGridRows.push(
@@ -13528,12 +13362,13 @@ function CTM_runMarketTrendReport() {
   CTM_appendRows_(ctmTrendsSheet, ctmMarketRows);
   CTM_replaceGridRows_(ctmGridSheet, ctmGridRows);
 
-  const ctmTelegramMessage = CTM_buildTelegramMessage_(
-    ctmAnalysis,
-    ctmGlobalData,
-    ctmNewsData,
-    ctmRuntimeConfig
-  );
+const ctmTelegramMessage = CTM_buildTelegramMessage_(
+  ctmAnalysis,
+  ctmGlobalData,
+  ctmNewsData,
+  ctmCryptoVix,
+  ctmRuntimeConfig
+);
 
   let ctmTelegramResult = {
     sent: false,
@@ -14038,7 +13873,7 @@ function CTM_fetchBybitOpenInterest_(ctmSymbol) {
 }
 
 function CTM_fetchGlobalMarketData_(ctmRuntimeConfig) {
-  const ctmUrl = CTM_CONFIG.COINGECKO_BASE + '/global';
+  const ctmUrl = CTM_getCoinGeckoBase_() + '/global';
   const ctmHeaders = CTM_buildCoinGeckoHeaders_(
     ctmRuntimeConfig.coinGeckoApiKey
   );
@@ -14093,7 +13928,7 @@ function CTM_fetchCoinGeckoCoin_(ctmSymbol, ctmCoinGeckoApiKey) {
   }
 
   const ctmUrl =
-    CTM_CONFIG.COINGECKO_BASE +
+    CTM_getCoinGeckoBase_() +
     '/coins/markets?vs_currency=usd' +
     '&ids=' + encodeURIComponent(ctmCoinId) +
     '&price_change_percentage=1h,24h';
@@ -14821,23 +14656,43 @@ function CTM_buildReasons_(
 function CTM_buildGridPlan_(
   ctmData,
   ctmAssessment,
-  ctmRuntimeConfig
+  ctmRuntimeConfig,
+  ctmCryptoVix
 ) {
   const ctmVolatilityPct = Math.max(
     ctmData.atr1hPct,
     ctmData.atr4hPct / 2
   );
 
+  const ctmVixMultiplier = ctmCryptoVix &&
+    ctmCryptoVix.available
+      ? ctmCryptoVix.multiplier
+      : 1;
+
+  const ctmVixLeverageCap = ctmCryptoVix &&
+    ctmCryptoVix.available
+      ? ctmCryptoVix.leverageCap
+      : ctmRuntimeConfig.maxLeverage;
+
   const ctmBaseRangePct = CTM_clamp_(
-    Math.max(3.5, ctmVolatilityPct * 3.2),
+    Math.max(
+      3.5,
+      ctmVolatilityPct * 3.2 * ctmVixMultiplier
+    ),
     3.5,
-    16
+    25
   );
 
   let ctmMode = 'NEUTRAL';
   let ctmLowerPct = ctmBaseRangePct;
   let ctmUpperPct = ctmBaseRangePct;
-  let ctmLeverage = Math.min(2, ctmRuntimeConfig.maxLeverage);
+
+  let ctmLeverage = Math.min(
+    2,
+    ctmRuntimeConfig.maxLeverage,
+    ctmVixLeverageCap
+  );
+
   let ctmAction = 'WAIT / NEUTRAL GRID';
 
   if (
@@ -14847,8 +14702,15 @@ function CTM_buildGridPlan_(
     ctmMode = 'LONG';
     ctmLowerPct = ctmBaseRangePct * 0.70;
     ctmUpperPct = ctmBaseRangePct * 1.30;
-    ctmLeverage = Math.min(2, ctmRuntimeConfig.maxLeverage);
-    ctmAction = 'LONG GRID — χαμηλότερη έκθεση κοντά στο upper range';
+
+    ctmLeverage = Math.min(
+      2,
+      ctmRuntimeConfig.maxLeverage,
+      ctmVixLeverageCap
+    );
+
+    ctmAction =
+      'LONG GRID — χαμηλότερη έκθεση κοντά στο upper range';
 
   } else if (
     ctmAssessment.bias === 'STRONG BEARISH' ||
@@ -14857,39 +14719,78 @@ function CTM_buildGridPlan_(
     ctmMode = 'SHORT';
     ctmLowerPct = ctmBaseRangePct * 1.30;
     ctmUpperPct = ctmBaseRangePct * 0.70;
+
     ctmLeverage = 1;
-    ctmAction = 'SHORT GRID ή PAUSE — προσοχή σε squeeze';
+
+    ctmAction =
+      'SHORT GRID ή PAUSE — προσοχή σε squeeze';
 
   } else {
     ctmMode = 'NEUTRAL';
     ctmLowerPct = ctmBaseRangePct;
     ctmUpperPct = ctmBaseRangePct;
-    ctmLeverage = 1;
-    ctmAction = 'NEUTRAL GRID — μόνο μέσα στο προτεινόμενο εύρος';
+
+    ctmLeverage = Math.min(
+      1,
+      ctmRuntimeConfig.maxLeverage,
+      ctmVixLeverageCap
+    );
+
+    ctmAction =
+      'NEUTRAL GRID — μόνο μέσα στο προτεινόμενο εύρος';
   }
 
   if (ctmAssessment.riskLevel === 'HIGH') {
     ctmLeverage = 1;
     ctmLowerPct *= 1.25;
     ctmUpperPct *= 1.25;
-    ctmAction += ' | HIGH RISK: μειωμένο κεφάλαιο ή αναμονή';
+
+    ctmAction +=
+      ' | HIGH RISK: μειωμένο κεφάλαιο ή αναμονή';
+  }
+
+  if (
+    ctmCryptoVix &&
+    ctmCryptoVix.available &&
+    ctmCryptoVix.regime === 'EXTREME'
+  ) {
+    ctmLeverage = 1;
+    ctmAction =
+      'PAUSE NEW FUTURES GRID — EXTREME IMPLIED VOLATILITY';
+  }
+
+  if (
+    ctmCryptoVix &&
+    ctmCryptoVix.available &&
+    (
+      ctmCryptoVix.regime === 'HIGH' ||
+      ctmCryptoVix.regime === 'ELEVATED'
+    )
+  ) {
+    ctmAction +=
+      ' | IV ' + ctmCryptoVix.regime +
+      ': widened range / reduced risk';
   }
 
   if (
     Math.abs(ctmData.fundingRatePct8h) >=
     CTM_CONFIG.RISK.EXTREME_FUNDING_PCT_8H
   ) {
-    ctmAction += ' | EXTREME FUNDING: μείωσε leverage';
+    ctmAction +=
+      ' | EXTREME FUNDING: μείωσε leverage';
   }
 
-  const ctmLowerPrice = ctmData.price * (1 - ctmLowerPct / 100);
-  const ctmUpperPrice = ctmData.price * (1 + ctmUpperPct / 100);
+  const ctmLowerPrice =
+    ctmData.price * (1 - ctmLowerPct / 100);
+
+  const ctmUpperPrice =
+    ctmData.price * (1 + ctmUpperPct / 100);
 
   const ctmGridCount = Math.round(
     CTM_clamp_(
       CTM_CONFIG.DEFAULT_GRID_COUNT +
-        (ctmVolatilityPct * 3) -
-        (ctmAssessment.riskLevel === 'HIGH' ? 7 : 0),
+      (ctmVolatilityPct * 3) -
+      (ctmAssessment.riskLevel === 'HIGH' ? 7 : 0),
       CTM_CONFIG.MIN_GRID_COUNT,
       CTM_CONFIG.MAX_GRID_COUNT
     )
@@ -14902,21 +14803,38 @@ function CTM_buildGridPlan_(
   ) * 100;
 
   const ctmStopLoss = ctmMode === 'LONG'
-    ? ctmLowerPrice * (1 - Math.max(1.5, ctmVolatilityPct * 0.9) / 100)
+    ? ctmLowerPrice * (
+      1 - Math.max(1.5, ctmVolatilityPct * 0.9) / 100
+    )
     : ctmMode === 'SHORT'
-      ? ctmUpperPrice * (1 + Math.max(1.5, ctmVolatilityPct * 0.9) / 100)
+      ? ctmUpperPrice * (
+        1 + Math.max(1.5, ctmVolatilityPct * 0.9) / 100
+      )
       : 0;
 
   return {
     mode: ctmMode,
     action: ctmAction,
     leverage: ctmLeverage,
+
     lowerPrice: ctmLowerPrice,
     upperPrice: ctmUpperPrice,
+
     gridCount: ctmGridCount,
     spacingPct: ctmSpacingPct,
     stopLoss: ctmStopLoss,
-    volatilityPct: ctmVolatilityPct
+
+    volatilityPct: ctmVolatilityPct,
+
+    cryptoVix: ctmCryptoVix
+      ? ctmCryptoVix.composite
+      : 0,
+
+    cryptoVixRegime: ctmCryptoVix
+      ? ctmCryptoVix.regime
+      : 'UNAVAILABLE',
+
+    volatilityMultiplier: ctmVixMultiplier
   };
 }
 
@@ -14970,44 +14888,51 @@ function CTM_getOrCreateTrendsSheet_(ctmSpreadsheet) {
     ctmSheet = ctmSpreadsheet.insertSheet(CTM_CONFIG.SHEET_TRENDS);
   }
 
-  const ctmHeaders = [
-    'Timestamp',
-    'Symbol',
-    'Provider',
-    'Price',
-    '1h Change %',
-    '24h Change %',
-    '24h High',
-    '24h Low',
-    '24h Quote Volume',
-    'Funding % / 8h',
-    'Open Interest',
-    'OI Change 1h %',
-    'RSI 1h',
-    'RSI 4h',
-    'ATR 1h %',
-    'ATR 4h %',
-    'EMA Trend 1h',
-    'EMA Trend 4h',
-    '24h Range Position %',
-    '1h Volume Ratio',
-    'Global MCap 24h %',
-    'BTC Dominance %',
-    'News Score',
-    'News Headlines',
-    'Signal Score',
-    '12h Bias',
-    'Confidence %',
-    'Risk Level',
-    'Grid Mode',
-    'Grid Lower',
-    'Grid Upper',
-    'Grid Count',
-    'Grid Spacing %',
-    'Suggested Leverage',
-    'Suggested Stop',
-    'Error'
-  ];
+const ctmHeaders = [
+  'Timestamp',                    // 1
+  'Symbol',                       // 2
+  'Provider',                     // 3
+  'Price',                        // 4
+  '1h Change %',                  // 5
+  '24h Change %',                 // 6
+  '24h High',                     // 7
+  '24h Low',                      // 8
+  '24h Quote Volume',             // 9
+  'Funding % / 8h',               // 10
+  'Open Interest',                // 11
+  'OI Change 1h %',               // 12
+  'RSI 1h',                       // 13
+  'RSI 4h',                       // 14
+  'ATR 1h %',                     // 15
+  'ATR 4h %',                     // 16
+  'EMA Trend 1h',                 // 17
+  'EMA Trend 4h',                 // 18
+  '24h Range Position %',         // 19
+  '1h Volume Ratio',              // 20
+  'Global MCap 24h %',            // 21
+  'BTC Dominance %',              // 22
+  'News Score',                   // 23
+  'News Headlines',               // 24
+  'Signal Score',                 // 25
+  '12h Bias',                     // 26
+  'Confidence %',                 // 27
+  'Risk Level',                   // 28
+  'Grid Mode',                    // 29
+  'Grid Lower',                   // 30
+  'Grid Upper',                   // 31
+  'Grid Count',                   // 32
+  'Grid Spacing %',               // 33
+  'Suggested Leverage',           // 34
+  'Suggested Stop',               // 35
+  'BVIV BTC 30D IV',              // 36
+  'BVIV 24h Change %',            // 37
+  'EVIV ETH 30D IV',              // 38
+  'EVIV 24h Change %',            // 39
+  'Crypto VIX Composite',         // 40
+  'Crypto VIX Regime',            // 41
+  'VIX Grid Multiplier',          // 42
+  'Error'                         // 43
+];
 
   CTM_ensureHeaders_(ctmSheet, ctmHeaders);
 
@@ -15222,46 +15147,57 @@ function CTM_buildTrendRow_(
   ctmAssessment,
   ctmGridPlan,
   ctmGlobalData,
-  ctmNewsData
+  ctmNewsData,
+  ctmCryptoVix
 ) {
-return [
-  ctmData.collectedAt,
-  ctmData.symbol,
-  ctmData.provider,
-  ctmData.price,
-  ctmData.cgPrice1hPct,
-  ctmData.priceChange24hPct,
-  ctmData.high24h,
-  ctmData.low24h,
-  ctmData.quoteVolume24h,
-  ctmData.fundingRatePct8h,
-  ctmData.openInterest,
-  ctmData.oiChange1hPct,
-  ctmData.rsi1h,
-  ctmData.rsi4h,
-  ctmData.atr1hPct,
-  ctmData.atr4hPct,
-  ctmAssessment.trend1h,
-  ctmAssessment.trend4h,
-  ctmData.rangePosition24hPct,
-  ctmData.volumeRatio1h,
-  ctmGlobalData.marketCapChange24hPct,
-  ctmGlobalData.btcDominancePct,
-  ctmNewsData.normalizedScore,
-  CTM_headlinesToText_(ctmNewsData.headlines, 5),
-  ctmAssessment.score,
-  ctmAssessment.bias,
-  ctmAssessment.confidencePct,
-  ctmAssessment.riskLevel,
-  ctmGridPlan.mode,
-  ctmGridPlan.lowerPrice,
-  ctmGridPlan.upperPrice,
-  ctmGridPlan.gridCount,
-  ctmGridPlan.spacingPct,
-  ctmGridPlan.leverage,
-  ctmGridPlan.stopLoss,
-  ''
-];
+  const ctmVixAvailable = ctmCryptoVix &&
+    ctmCryptoVix.available;
+
+  return [
+    ctmData.collectedAt,                                  // 1
+    ctmData.symbol,                                       // 2
+    ctmData.provider || 'UNKNOWN',                        // 3
+    ctmData.price,                                        // 4
+    ctmData.cgPrice1hPct,                                 // 5
+    ctmData.priceChange24hPct,                            // 6
+    ctmData.high24h,                                      // 7
+    ctmData.low24h,                                       // 8
+    ctmData.quoteVolume24h,                               // 9
+    ctmData.fundingRatePct8h,                             // 10
+    ctmData.openInterest,                                 // 11
+    ctmData.oiChange1hPct,                                // 12
+    ctmData.rsi1h,                                        // 13
+    ctmData.rsi4h,                                        // 14
+    ctmData.atr1hPct,                                     // 15
+    ctmData.atr4hPct,                                     // 16
+    ctmAssessment.trend1h,                                // 17
+    ctmAssessment.trend4h,                                // 18
+    ctmData.rangePosition24hPct,                          // 19
+    ctmData.volumeRatio1h,                                // 20
+    ctmGlobalData.marketCapChange24hPct,                  // 21
+    ctmGlobalData.btcDominancePct,                        // 22
+    ctmNewsData.normalizedScore,                          // 23
+    CTM_headlinesToText_(ctmNewsData.headlines, 5),       // 24
+    ctmAssessment.score,                                  // 25
+    ctmAssessment.bias,                                   // 26
+    ctmAssessment.confidencePct,                          // 27
+    ctmAssessment.riskLevel,                              // 28
+    ctmGridPlan.mode,                                     // 29
+    ctmGridPlan.lowerPrice,                               // 30
+    ctmGridPlan.upperPrice,                               // 31
+    ctmGridPlan.gridCount,                                // 32
+    ctmGridPlan.spacingPct,                               // 33
+    ctmGridPlan.leverage,                                 // 34
+    ctmGridPlan.stopLoss,                                 // 35
+    ctmVixAvailable ? ctmCryptoVix.bviv : '',             // 36
+    ctmVixAvailable ? ctmCryptoVix.bvivChange24hPct : '', // 37
+    ctmVixAvailable ? ctmCryptoVix.eviv : '',             // 38
+    ctmVixAvailable ? ctmCryptoVix.evivChange24hPct : '', // 39
+    ctmVixAvailable ? ctmCryptoVix.composite : '',        // 40
+    ctmCryptoVix ? ctmCryptoVix.regime : 'UNAVAILABLE',   // 41
+    ctmCryptoVix ? ctmCryptoVix.multiplier : 1,           // 42
+    ''                                                    // 43
+  ];
 }
 
 function CTM_buildErrorTrendRow_(
@@ -15432,6 +15368,7 @@ function CTM_buildTelegramMessage_(
   ctmAnalysis,
   ctmGlobalData,
   ctmNewsData,
+  ctmCryptoVix,
   ctmRuntimeConfig
 ) {
   const ctmNow = CTM_formatDate_(new Date());
@@ -15475,6 +15412,61 @@ function CTM_buildTelegramMessage_(
     '</b> (' +
     ctmNewsData.positiveCount + ' θετικά / ' +
     ctmNewsData.negativeCount + ' αρνητικά)\n\n';
+
+if (
+  ctmCryptoVix &&
+  ctmCryptoVix.available &&
+  ctmCryptoVix.composite > 0
+) {
+  ctmMessage +=
+    '🌪 <b>Crypto VIX / Implied Volatility</b>\n';
+
+  ctmMessage += ctmCryptoVix.bvivAvailable
+    ? '₿ BVIV BTC 30D: <b>' +
+      CTM_formatNumber_(ctmCryptoVix.bviv, 2) +
+      '</b> | 24h ' +
+      CTM_formatSignedPct_(ctmCryptoVix.bvivChange24hPct) +
+      '\n'
+    : '₿ BVIV BTC 30D: <b>N/A</b>' +
+      (ctmCryptoVix.bvivError
+        ? ' — ' + CTM_escapeHtml_(
+          CTM_truncate_(ctmCryptoVix.bvivError, 80)
+        )
+        : '') +
+      '\n';
+
+  ctmMessage += ctmCryptoVix.evivAvailable
+    ? 'Ξ EVIV ETH 30D: <b>' +
+      CTM_formatNumber_(ctmCryptoVix.eviv, 2) +
+      '</b> | 24h ' +
+      CTM_formatSignedPct_(ctmCryptoVix.evivChange24hPct) +
+      '\n'
+    : 'Ξ EVIV ETH 30D: <b>N/A</b>' +
+      (ctmCryptoVix.evivError
+        ? ' — ' + CTM_escapeHtml_(
+          CTM_truncate_(ctmCryptoVix.evivError, 80)
+        )
+        : '') +
+      '\n';
+
+  ctmMessage +=
+    '⚡️ Composite' +
+(ctmCryptoVix.bvivAvailable && ctmCryptoVix.evivAvailable
+  ? ''
+  : ' (partial)') +
+': <b>' +
+    CTM_formatNumber_(ctmCryptoVix.composite, 2) +
+    '</b> | Regime: <b>' +
+    CTM_escapeHtml_(ctmCryptoVix.regime) +
+    '</b> | Grid range x' +
+    CTM_formatNumber_(ctmCryptoVix.multiplier, 2) +
+    '\n\n';
+
+} else {
+  ctmMessage +=
+    '🌪 <b>Crypto VIX / Implied Volatility:</b> N/A\n' +
+    '⚠️ Volmex data unavailable — grid volatility adjustment disabled\n\n';
+}
 
   ctmAnalysis.forEach(function(ctmItem) {
     const ctmData = ctmItem.data;
@@ -15543,55 +15535,9 @@ function CTM_buildTelegramMessage_(
   ctmMessage +=
     '⚠️ <i>Εκτίμηση 12ώρου, όχι επενδυτική συμβουλή. ' +
     'Μην ανοίγεις/επεκτείνεις futures grid σε υψηλό ATR, ' +
-    'απότομο OI expansion ή πριν από σημαντικά macro γεγονότα.</i>';
+    'υψηλό Crypto VIX, απότομο OI expansion ή πριν από σημαντικά macro γεγονότα.</i>';
 
   return CTM_truncate_(ctmMessage, CTM_CONFIG.TELEGRAM_MESSAGE_LIMIT);
-}
-
-function CTM_sendTelegram_(ctmMessage, ctmProps) {
-  const ctmBotToken = ctmProps.getProperty('TELEGRAM_BOT_TOKEN');
-  const ctmChatId = ctmProps.getProperty('TELEGRAM_CHAT_ID');
-
-  if (!ctmBotToken || !ctmChatId) {
-    return {
-      sent: false,
-      reason: 'Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID'
-    };
-  }
-
-  const ctmUrl =
-    'https://api.telegram.org/bot' +
-    encodeURIComponent(ctmBotToken) +
-    '/sendMessage';
-
-  const ctmPayload = {
-    chat_id: ctmChatId,
-    text: ctmMessage,
-    parse_mode: 'HTML',
-    disable_web_page_preview: true
-  };
-
-  const ctmResponse = UrlFetchApp.fetch(ctmUrl, {
-    method: 'post',
-    contentType: 'application/json',
-    payload: JSON.stringify(ctmPayload),
-    muteHttpExceptions: true
-  });
-
-  const ctmCode = ctmResponse.getResponseCode();
-  const ctmBody = ctmResponse.getContentText();
-
-  if (ctmCode < 200 || ctmCode >= 300) {
-    throw new Error(
-      'Telegram HTTP ' + ctmCode + ': ' + CTM_truncate_(ctmBody, 500)
-    );
-  }
-
-  return {
-    sent: true,
-    responseCode: ctmCode,
-    response: ctmBody
-  };
 }
 
 function CTM_shouldSendAlert_(ctmAnalysis) {
@@ -15749,7 +15695,19 @@ function CTM_buildCoinGeckoHeaders_(ctmCoinGeckoApiKey) {
     accept: 'application/json'
   };
 
-  if (ctmCoinGeckoApiKey) {
+  if (!ctmCoinGeckoApiKey) {
+    return ctmHeaders;
+  }
+
+  const ctmPlan = String(
+    PropertiesService
+      .getScriptProperties()
+      .getProperty('COINGECKO_API_PLAN') || 'DEMO'
+  ).toUpperCase();
+
+  if (ctmPlan === 'PRO') {
+    ctmHeaders['x-cg-pro-api-key'] = ctmCoinGeckoApiKey;
+  } else {
     ctmHeaders['x-cg-demo-api-key'] = ctmCoinGeckoApiKey;
   }
 
@@ -16258,7 +16216,7 @@ function CTM_fetchCoinGeckoMarketFallback_(
   }
 
   const ctmUrl =
-    CTM_CONFIG.COINGECKO_BASE +
+    CTM_getCoinGeckoBase_() +
     '/coins/markets?vs_currency=usd' +
     '&ids=' + encodeURIComponent(ctmCoinId) +
     '&sparkline=true' +
@@ -16381,6 +16339,84 @@ function CTM_buildPseudoCandlesFromPrices_(
 
   return ctmCandles;
 }
+
+function CTM_sendTelegram_(ctmMessage, ctmProps) {
+  const ctmBotToken = ctmProps.getProperty('TELEGRAM_BOT_TOKEN');
+  const ctmChatId = ctmProps.getProperty('TELEGRAM_CHAT_ID');
+
+  if (!ctmBotToken || !ctmChatId) {
+    return {
+      sent: false,
+      reason: 'Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID'
+    };
+  }
+
+  const ctmUrl =
+    'https://api.telegram.org/bot' +
+    encodeURIComponent(ctmBotToken) +
+    '/sendMessage';
+
+  const ctmPayload = {
+    chat_id: ctmChatId,
+    text: ctmMessage,
+    parse_mode: 'HTML',
+    disable_web_page_preview: true
+  };
+
+  const ctmResponse = UrlFetchApp.fetch(ctmUrl, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(ctmPayload),
+    muteHttpExceptions: true
+  });
+
+  const ctmCode = ctmResponse.getResponseCode();
+  const ctmBody = ctmResponse.getContentText();
+
+  if (ctmCode < 200 || ctmCode >= 300) {
+    throw new Error(
+      'Telegram HTTP ' + ctmCode + ': ' +
+      CTM_truncate_(ctmBody, 500)
+    );
+  }
+
+  return {
+    sent: true,
+    responseCode: ctmCode,
+    response: ctmBody
+  };
+}
+
+function CTM_testCoinGecko() {
+  const ctmProps = PropertiesService.getScriptProperties();
+  const ctmApiKey = ctmProps.getProperty('COINGECKO_API_KEY') || '';
+
+  const ctmUrl =
+    CTM_getCoinGeckoBase_() +
+    '/coins/markets?vs_currency=usd' +
+    '&ids=bitcoin' +
+    '&sparkline=true' +
+    '&price_change_percentage=1h,24h,7d';
+
+  const ctmResponse = UrlFetchApp.fetch(ctmUrl, {
+    method: 'get',
+    headers: CTM_buildCoinGeckoHeaders_(ctmApiKey),
+    muteHttpExceptions: true
+  });
+
+  const ctmCode = ctmResponse.getResponseCode();
+  const ctmBody = ctmResponse.getContentText();
+
+  Logger.log('HTTP: ' + ctmCode);
+  Logger.log(ctmBody.slice(0, 500));
+
+  return {
+    httpCode: ctmCode,
+    responsePreview: ctmBody.slice(0, 500)
+  };
+}
+
+
 
 
 
@@ -16744,8 +16780,710 @@ function testOil() {
   Logger.log('Oil: ' + oil.price + ' | ' + oil.changePct + '% | ' + oil.date);
 }
 
+function CTM_fetchCryptoVix_() {
+  try {
+    const ctmBviv = CTM_fetchVolmexQuoteSafe_('BVIV');
+    const ctmEviv = CTM_fetchVolmexQuoteSafe_('EVIV');
+
+    const ctmBvivValue = ctmBviv.available &&
+      isFinite(ctmBviv.value) &&
+      ctmBviv.value > 0
+      ? ctmBviv.value
+      : 0;
+
+    const ctmEvivValue = ctmEviv.available &&
+      isFinite(ctmEviv.value) &&
+      ctmEviv.value > 0
+      ? ctmEviv.value
+      : 0;
+
+    const ctmComposite = CTM_calculateCryptoVixComposite_(
+      ctmBvivValue,
+      ctmEvivValue
+    );
+
+    const ctmRegime = CTM_getVolatilityRegime_(ctmComposite);
+
+    return {
+      available: ctmComposite > 0,
+
+      bviv: ctmBvivValue,
+      bvivAvailable: ctmBvivValue > 0,
+      bvivChange24hPct: ctmBvivValue > 0
+        ? ctmBviv.change24hPct || 0
+        : 0,
+
+      eviv: ctmEvivValue,
+      evivAvailable: ctmEvivValue > 0,
+      evivChange24hPct: ctmEvivValue > 0
+        ? ctmEviv.change24hPct || 0
+        : 0,
+
+      composite: ctmComposite,
+      regime: ctmRegime.regime,
+      multiplier: ctmRegime.multiplier,
+      leverageCap: ctmRegime.leverageCap,
+
+      fetchedAt: new Date(),
+      source: ctmComposite > 0 ? 'VOLMEX' : 'UNAVAILABLE',
+
+      bvivError: ctmBviv.error || '',
+      evivError: ctmEviv.error || ''
+    };
+
+  } catch (ctmError) {
+    Logger.log(
+      'CTM Crypto VIX unavailable: ' + ctmError.message
+    );
+
+    return {
+      available: false,
+
+      bviv: 0,
+      bvivAvailable: false,
+      bvivChange24hPct: 0,
+
+      eviv: 0,
+      evivAvailable: false,
+      evivChange24hPct: 0,
+
+      composite: 0,
+      regime: 'UNAVAILABLE',
+      multiplier: 1,
+      leverageCap: 1,
+
+      fetchedAt: new Date(),
+      source: 'UNAVAILABLE',
+      error: ctmError.message
+    };
+  }
+}
 
 
+function CTM_fetchVolmexQuoteRest_(ctmSymbol) {
+  let ctmUrl =
+    CTM_CONFIG.VOLMEX_REST_BASE +
+    '/v2/quotes?symbols=' +
+    encodeURIComponent(ctmSymbol);
+
+  const ctmApiKey = PropertiesService
+    .getScriptProperties()
+    .getProperty('VOLMEX_API_KEY');
+
+  if (ctmApiKey) {
+    ctmUrl += '&apikey=' + encodeURIComponent(ctmApiKey);
+  }
+
+  const ctmResponse = CTM_fetchJson_(ctmUrl, {
+    method: 'get',
+    muteHttpExceptions: true
+  });
+
+  return CTM_extractVolmexQuote_(ctmResponse, ctmSymbol);
+}
+
+function CTM_fetchVolmexQuoteGraphQL_(ctmSymbol) {
+  const ctmAsset = ctmSymbol === 'BVIV'
+    ? 'BTC'
+    : ctmSymbol === 'EVIV'
+      ? 'ETH'
+      : '';
+
+  if (!ctmAsset) {
+    throw new Error(
+      'Δεν υπάρχει GraphQL asset mapping για: ' + ctmSymbol
+    );
+  }
+
+  const ctmQuery = {
+    query: [
+      'query {',
+      '  timeSeries(',
+      '    asset: "' + ctmAsset + '",',
+      '    timeBucket: "60m",',
+      '    lookbackPeriod: "30d"',
+      '  ) {',
+      '    date',
+      '    open',
+      '    high',
+      '    low',
+      '    close',
+      '  }',
+      '}'
+    ].join(' ')
+  };
+
+  const ctmResponse = CTM_fetchJson_(
+    'https://api-v2.volmex.finance/graphql',
+    {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(ctmQuery),
+      muteHttpExceptions: true
+    }
+  );
+
+  if (
+    !ctmResponse ||
+    !ctmResponse.data ||
+    !ctmResponse.data.timeSeries ||
+    !ctmResponse.data.timeSeries.length
+  ) {
+    throw new Error(
+      'Μη έγκυρη GraphQL απάντηση για ' +
+      ctmSymbol + ': ' +
+      JSON.stringify(ctmResponse).slice(0, 300)
+    );
+  }
+
+  const ctmSeries = ctmResponse.data.timeSeries;
+
+  const ctmLatest = ctmSeries[ctmSeries.length - 1];
+
+  let ctmPrevious24h = null;
+
+  if (ctmSeries.length >= 25) {
+    ctmPrevious24h = ctmSeries[ctmSeries.length - 25];
+  }
+
+  const ctmLatestValue = Number(
+    ctmLatest.close ||
+    ctmLatest.value ||
+    ctmLatest.price ||
+    ctmLatest.last ||
+    0
+  );
+
+  const ctmPreviousValue = ctmPrevious24h
+    ? Number(
+      ctmPrevious24h.close ||
+      ctmPrevious24h.value ||
+      ctmPrevious24h.price ||
+      ctmPrevious24h.last ||
+      0
+    )
+    : 0;
+
+  const ctmChange24hPct = ctmPreviousValue > 0
+    ? ((ctmLatestValue - ctmPreviousValue) /
+        ctmPreviousValue) * 100
+    : 0;
+
+  if (!isFinite(ctmLatestValue) || ctmLatestValue <= 0) {
+    throw new Error(
+      'Μη έγκυρη GraphQL τιμή για ' +
+      ctmSymbol + ': ' + JSON.stringify(ctmLatest)
+    );
+  }
+
+  return {
+    value: ctmLatestValue,
+    change24hPct: ctmChange24hPct,
+    timestamp: Number(
+      new Date(ctmLatest.date).getTime() / 1000
+    ),
+    termDays: 30
+  };
+}
+function CTM_debugVolmexBviv() {
+  const ctmQuery = {
+    query: [
+      'query {',
+      '  timeSeries(',
+      '    asset: "BTC",',
+      '    timeBucket: "60m",',
+      '    lookbackPeriod: "30d"',
+      '  ) {',
+      '    date',
+      '    open',
+      '    high',
+      '    low',
+      '    close',
+      '  }',
+      '}'
+    ].join(' ')
+  };
+
+  const ctmResponse = UrlFetchApp.fetch(
+    'https://api-v2.volmex.finance/graphql',
+    {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(ctmQuery),
+      muteHttpExceptions: true
+    }
+  );
+
+  const ctmCode = ctmResponse.getResponseCode();
+  const ctmBody = ctmResponse.getContentText();
+
+  Logger.log('HTTP: ' + ctmCode);
+  Logger.log(ctmBody);
+
+  let ctmParsed = {};
+
+  try {
+    ctmParsed = JSON.parse(ctmBody);
+  } catch (ctmError) {
+    ctmParsed = { parseError: ctmError.message };
+  }
+
+  const ctmSeries =
+    ctmParsed &&
+    ctmParsed.data &&
+    ctmParsed.data.timeSeries
+      ? ctmParsed.data.timeSeries
+      : [];
+
+  Logger.log('Series length: ' + ctmSeries.length);
+
+  if (ctmSeries.length) {
+    Logger.log(
+      'Latest candle: ' +
+      JSON.stringify(ctmSeries[ctmSeries.length - 1])
+    );
+
+    Logger.log(
+      '24h-ago candle: ' +
+      JSON.stringify(
+        ctmSeries[
+          Math.max(0, ctmSeries.length - 25)
+        ]
+      )
+    );
+  }
+
+  return {
+    httpCode: ctmCode,
+    seriesLength: ctmSeries.length,
+    latestCandle: ctmSeries.length
+      ? ctmSeries[ctmSeries.length - 1]
+      : null,
+    responsePreview: String(ctmBody).slice(0, 500)
+  };
+}
+
+function CTM_testVolmexQuotes() {
+  const ctmUrl = CTM_CONFIG.VOLMEX_REST_BASE + '/v2/quotes';
+
+  const ctmResponse = UrlFetchApp.fetch(ctmUrl, {
+    method: 'get',
+    muteHttpExceptions: true
+  });
+
+  Logger.log('HTTP: ' + ctmResponse.getResponseCode());
+  Logger.log(ctmResponse.getContentText());
+
+  return ctmResponse.getContentText();
+}
+
+function CTM_fetchVolmexQuoteSafe_(ctmSymbol) {
+  const ctmMaxAttempts = 3;
+  const ctmDelaysMs = [0, 2000, 5000];
+
+  let ctmLastError = '';
+
+  for (
+    let ctmAttempt = 0;
+    ctmAttempt < ctmMaxAttempts;
+    ctmAttempt++
+  ) {
+    if (ctmDelaysMs[ctmAttempt] > 0) {
+      Utilities.sleep(ctmDelaysMs[ctmAttempt]);
+    }
+
+    try {
+      const ctmQuote = CTM_fetchVolmexQuoteGraphQL_(ctmSymbol);
+
+      if (
+        ctmQuote &&
+        isFinite(ctmQuote.value) &&
+        ctmQuote.value > 0
+      ) {
+        return {
+          available: true,
+          value: ctmQuote.value,
+          change24hPct: ctmQuote.change24hPct || 0,
+          timestamp: ctmQuote.timestamp || 0,
+          termDays: ctmQuote.termDays || 30,
+          source: 'VOLMEX-GRAPHQL',
+          error: ''
+        };
+      }
+
+      ctmLastError =
+        'Invalid or zero Volmex value: ' +
+        JSON.stringify(ctmQuote);
+
+    } catch (ctmError) {
+      ctmLastError = ctmError.message;
+
+      Logger.log(
+        'CTM Volmex attempt ' +
+        (ctmAttempt + 1) + '/' + ctmMaxAttempts +
+        ' failed for ' + ctmSymbol + ': ' +
+        ctmLastError
+      );
+    }
+  }
+
+  return {
+    available: false,
+    value: 0,
+    change24hPct: 0,
+    timestamp: 0,
+    termDays: 0,
+    source: 'UNAVAILABLE',
+    error: ctmLastError
+  };
+}
+
+
+function CTM_testVolmexGraphQL() {
+  const ctmQuery = {
+    query: [
+      'query {',
+      '  timeSeries(',
+      '    asset: "BTC",',
+      '    timeBucket: "60m",',
+      '    lookbackPeriod: "30d"',
+      '  ) {',
+      '    date',
+      '    value',
+      '  }',
+      '}'
+    ].join(' ')
+  };
+
+  const ctmResponse = UrlFetchApp.fetch(
+    'https://api-v2.volmex.finance/graphql',
+    {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(ctmQuery),
+      muteHttpExceptions: true
+    }
+  );
+
+  const ctmCode = ctmResponse.getResponseCode();
+  const ctmBody = ctmResponse.getContentText();
+
+  Logger.log('HTTP: ' + ctmCode);
+  Logger.log(ctmBody);
+
+  return {
+    httpCode: ctmCode,
+    response: ctmBody
+  };
+}
+
+function CTM_fetchVolmexQuoteGraphQL_(ctmSymbol) {
+  const ctmAsset = ctmSymbol === 'BVIV'
+    ? 'BTC'
+    : ctmSymbol === 'EVIV'
+      ? 'ETH'
+      : '';
+
+  if (!ctmAsset) {
+    throw new Error(
+      'Δεν υπάρχει GraphQL asset mapping για: ' + ctmSymbol
+    );
+  }
+
+  const ctmQuery = {
+    query: [
+      'query {',
+      '  timeSeries(',
+      '    asset: "' + ctmAsset + '",',
+      '    timeBucket: "60m",',
+      '    lookbackPeriod: "30d"',
+      '  ) {',
+      '    date',
+      '    open',
+      '    high',
+      '    low',
+      '    close',
+      '  }',
+      '}'
+    ].join(' ')
+  };
+
+  const ctmResponse = CTM_fetchJson_(
+    'https://api-v2.volmex.finance/graphql',
+    {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(ctmQuery),
+      muteHttpExceptions: true
+    }
+  );
+
+  if (
+    !ctmResponse ||
+    !ctmResponse.data ||
+    !ctmResponse.data.timeSeries ||
+    !Array.isArray(ctmResponse.data.timeSeries) ||
+    !ctmResponse.data.timeSeries.length
+  ) {
+    throw new Error(
+      'Μη έγκυρη GraphQL απάντηση για ' +
+      ctmSymbol + ': ' +
+      JSON.stringify(ctmResponse).slice(0, 400)
+    );
+  }
+
+  const ctmSeries = ctmResponse.data.timeSeries;
+
+  const ctmLatest = ctmSeries[ctmSeries.length - 1];
+
+  let ctmPrevious24h = null;
+
+  if (ctmSeries.length >= 25) {
+    ctmPrevious24h = ctmSeries[ctmSeries.length - 25];
+  }
+
+  const ctmLatestValue = Number(
+    ctmLatest.close ||
+    ctmLatest.value ||
+    ctmLatest.price ||
+    ctmLatest.last ||
+    0
+  );
+
+  const ctmPreviousValue = ctmPrevious24h
+    ? Number(
+      ctmPrevious24h.close ||
+      ctmPrevious24h.value ||
+      ctmPrevious24h.price ||
+      ctmPrevious24h.last ||
+      0
+    )
+    : 0;
+
+  const ctmChange24hPct = ctmPreviousValue > 0
+    ? ((ctmLatestValue - ctmPreviousValue) /
+        ctmPreviousValue) * 100
+    : 0;
+
+  if (
+    !isFinite(ctmLatestValue) ||
+    ctmLatestValue <= 0
+  ) {
+    throw new Error(
+      'Μη έγκυρη GraphQL τιμή για ' +
+      ctmSymbol + ': ' + JSON.stringify(ctmLatest)
+    );
+  }
+
+  return {
+    value: ctmLatestValue,
+    change24hPct: ctmChange24hPct,
+    timestamp: Number(
+      new Date(ctmLatest.date).getTime() / 1000
+    ),
+    termDays: 30
+  };
+}
+
+function CTM_testVolmexGraphQLFixed() {
+  const ctmQuery = {
+    query: [
+      'query {',
+      '  timeSeries(',
+      '    asset: "BTC",',
+      '    timeBucket: "60m",',
+      '    lookbackPeriod: "30d"',
+      '  ) {',
+      '    date',
+      '    open',
+      '    high',
+      '    low',
+      '    close',
+      '  }',
+      '}'
+    ].join(' ')
+  };
+
+  const ctmResponse = UrlFetchApp.fetch(
+    'https://api-v2.volmex.finance/graphql',
+    {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(ctmQuery),
+      muteHttpExceptions: true
+    }
+  );
+
+  const ctmCode = ctmResponse.getResponseCode();
+  const ctmBody = ctmResponse.getContentText();
+
+  Logger.log('HTTP: ' + ctmCode);
+  Logger.log(ctmBody);
+
+  return {
+    httpCode: ctmCode,
+    response: ctmBody
+  };
+}
+
+function CTM_extractVolmexQuote_(
+  ctmResponse,
+  ctmSymbol,
+  ctmChange24hPct
+) {
+  const ctmQuotes = CTM_findVolmexQuotes_(ctmResponse);
+
+  const ctmQuote = ctmQuotes.find(function(ctmItem) {
+    return String(
+      ctmItem.symbol ||
+      ctmItem.ticker ||
+      ctmItem.name ||
+      ''
+    ).toUpperCase() === ctmSymbol;
+  });
+
+  if (!ctmQuote) {
+    throw new Error(
+      'Volmex quote not found for: ' + ctmSymbol +
+      '. Response: ' + JSON.stringify(ctmResponse).slice(0, 300)
+    );
+  }
+
+  const ctmValue = Number(
+    ctmQuote.value ||
+    ctmQuote.price ||
+    ctmQuote.last ||
+    ctmQuote.close ||
+    0
+  );
+
+  if (!isFinite(ctmValue) || ctmValue <= 0) {
+    throw new Error(
+      'Invalid Volmex value for ' +
+      ctmSymbol + ': ' + JSON.stringify(ctmQuote)
+    );
+  }
+
+  const ctmChange = Number(ctmChange24hPct || 0);
+
+  return {
+    value: ctmValue,
+    change24hPct: isFinite(ctmChange) ? ctmChange : 0,
+    timestamp: Number(ctmQuote.timestamp || 0),
+    termDays: Number(ctmQuote.termDays || 30)
+  };
+}
+
+function CTM_findVolmexQuotes_(ctmResponse) {
+  if (
+    ctmResponse &&
+    ctmResponse.data &&
+    Array.isArray(ctmResponse.data)
+  ) {
+    return ctmResponse.data;
+  }
+
+  if (
+    ctmResponse &&
+    ctmResponse.required &&
+    Array.isArray(ctmResponse.required)
+  ) {
+    return ctmResponse.required;
+  }
+
+  if (Array.isArray(ctmResponse)) {
+    return ctmResponse;
+  }
+
+  return [];
+}
+
+function CTM_calculateCryptoVixComposite_(ctmBviv, ctmEviv) {
+  const ctmHasBviv = isFinite(ctmBviv) && ctmBviv > 0;
+  const ctmHasEviv = isFinite(ctmEviv) && ctmEviv > 0;
+
+  if (ctmHasBviv && ctmHasEviv) {
+    return (ctmBviv * 0.65) + (ctmEviv * 0.35);
+  }
+
+  if (ctmHasBviv) {
+    return ctmBviv;
+  }
+
+  if (ctmHasEviv) {
+    return ctmEviv;
+  }
+
+  return 0;
+}
+
+function CTM_getVolatilityRegime_(ctmCryptoVix) {
+  if (!ctmCryptoVix || !isFinite(ctmCryptoVix) || ctmCryptoVix <= 0) {
+    return {
+      regime: 'UNAVAILABLE',
+      multiplier: 1,
+      leverageCap: 1
+    };
+  }
+
+  if (ctmCryptoVix >= CTM_CONFIG.VOLATILITY.EXTREME_THRESHOLD) {
+    return {
+      regime: 'EXTREME',
+      multiplier: CTM_CONFIG.VOLATILITY.EXTREME_GRID_MULTIPLIER,
+      leverageCap: 1
+    };
+  }
+
+  if (ctmCryptoVix >= CTM_CONFIG.VOLATILITY.HIGH_THRESHOLD) {
+    return {
+      regime: 'HIGH',
+      multiplier: CTM_CONFIG.VOLATILITY.HIGH_GRID_MULTIPLIER,
+      leverageCap: 1
+    };
+  }
+
+  if (ctmCryptoVix >= CTM_CONFIG.VOLATILITY.ELEVATED_THRESHOLD) {
+    return {
+      regime: 'ELEVATED',
+      multiplier: CTM_CONFIG.VOLATILITY.ELEVATED_GRID_MULTIPLIER,
+      leverageCap: 2
+    };
+  }
+
+  if (ctmCryptoVix < CTM_CONFIG.VOLATILITY.LOW_THRESHOLD) {
+    return {
+      regime: 'LOW',
+      multiplier: CTM_CONFIG.VOLATILITY.LOW_GRID_MULTIPLIER,
+      leverageCap: 2
+    };
+  }
+
+  return {
+    regime: 'NORMAL',
+    multiplier: CTM_CONFIG.VOLATILITY.NORMAL_GRID_MULTIPLIER,
+    leverageCap: 2
+  };
+}
+
+
+function CTM_testVolmexChangeSafe() {
+  const ctmBviv = CTM_fetchVolmexQuoteSafe_('BVIV');
+  const ctmEviv = CTM_fetchVolmexQuoteSafe_('EVIV');
+
+  Logger.log('BVIV: ' + JSON.stringify(ctmBviv));
+  Logger.log('EVIV: ' + JSON.stringify(ctmEviv));
+
+  return {
+    bviv: ctmBviv,
+    eviv: ctmEviv,
+    bvivAvailable: ctmBviv.available,
+    evivAvailable: ctmEviv.available,
+    composite: CTM_calculateCryptoVixComposite_(
+      ctmBviv.available && ctmBviv.value > 0 ? ctmBviv.value : 0,
+      ctmEviv.available && ctmEviv.value > 0 ? ctmEviv.value : 0
+    )
+  };
+}
 
 
 
@@ -19271,6 +20009,11 @@ function createQtcDailyTrigger() {
 
 const KRYPTEX_BASE = 'https://pool.kryptex.com';
 
+const LIFETIME_PAYMENT_ADJUSTMENTS = {
+  QUAI: 794.1172,
+  ZEPH: 0
+};
+
 const SHEETS = {
   config: 'Config',
   summary: 'Pool Summary',
@@ -19648,20 +20391,42 @@ function sendKryptexTelegramSummary() {
       '<b>' + escapeTelegramHtml_(g.label) + '</b>'
     );
 
+    const symbol =
+    g.coin.toLowerCase() === 'zeph' ||
+    g.label.toLowerCase().includes('zephyr') ||
+    g.label.toLowerCase().includes('zeph')
+    ? 'ZEPH'
+    : 'QUAI';
+
+    const unit = ' ' + symbol;
+
     const b = g.balance;
     const p = g.payouts;
     const reward = p && p.reward ? p.reward : null;
 
-    const symbol = g.coin.toLowerCase() === 'zeph' ||
-               g.label.toLowerCase().includes('zephyr') ||
-               g.label.toLowerCase().includes('zeph')
-      ? 'ZEPH'
-      : 'QUAI';
 
-    const unit = ' ' + symbol;
+const paidLifetimeFromApi =
+  p && typeof p.paid === 'number'
+    ? p.paid
+    : 0;
+
+const paidAdjustment =
+  LIFETIME_PAYMENT_ADJUSTMENTS[symbol] || 0;
+
+const totalMinedLifetime =
+  b && typeof b.total === 'number'
+    ? b.total + paidLifetimeFromApi + paidAdjustment
+    : null;
 
     if (b && typeof b === 'object' && b.total !== undefined) {
       lines.push('💰 Total: ' + fmt_(b.total) + unit);
+      lines.push(
+  '🏆 Total Mined Lifetime: ' +
+  (totalMinedLifetime !== null
+    ? fmt_(totalMinedLifetime) + unit
+    : 'N/A')
+);
+
       lines.push('✅ Confirmed: ' + fmt_(b.confirmed) + unit);
       lines.push('⏳ Unconfirmed: ' + fmt_(b.unconfirmed) + unit);
       lines.push('🎯 Threshold: ' + fmt_(b.threshold) + unit);
@@ -19795,14 +20560,14 @@ function escapeTelegramHtml_(value) {
 
 
 /**
- * BTC-USDT-SWAP 4H Markov Order 3 + paper trading
+ * BTC / ETH / SOL USDT-SWAP 4H Markov Order 3 + independent paper trading
  * Google Apps Script. Names are prefixed M3_ to avoid collisions with existing code.
- * No real OKX trading endpoints are called. Public market data only.
+ * No real OKX trading endpoints are called. Public market data only; entries are paper-simulated.
  * Includes a heuristic 0-100 Signal Score and provisional Telegram PRE-SIGNAL
  * warnings near 4H candle close; PRE-SIGNAL never opens a paper trade.
  *
  * Before use:
- * 1) Run M3_setup() once and authorize.
+ * 1) Run M3_setup() once and authorize. This adds instrument columns to shared sheets while preserving existing rows.
  * 2) In Project Settings > Script properties, optionally set:
  *    TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
  * 3) Run M3_installTrigger() once.
@@ -19813,67 +20578,104 @@ function escapeTelegramHtml_(value) {
  * stop/target touches are resolved conservatively by prioritizing the stop.
  */
 const M3_CONFIG = {
+  symbols: ['BTC-USDT-SWAP', 'ETH-USDT-SWAP', 'SOL-USDT-SWAP'],
   instrument: 'BTC-USDT-SWAP',
-  bar: '4H',
-  candleTarget: 1800,
-  pageLimit: 300,
-  minTripleSamples: 100,
-  minProbability: 0.60,
-  requireWilsonLowerAbove50: true,
-  leverage: 3,
-  marginPctOfEquity: 0.05,
-  initialEquityUSDT: 1000,
-  takerFeeRate: 0.0005, // assumption; replace with account's actual fee tier
-  maxHoldCandles: 1,
-  stopAtrMultiple: 1.4,
-  target1AtrMultiple: 1.0,
-  target2AtrMultiple: 1.8,
-  target1CloseFraction: 0.50,
-  minAtrPct: 0.002,
-  maxAtrPct: 0.04,
-  minVolumeVsAvg20: 0.80,
-  recentWindows: [12, 36, 72],
-  triggerEveryMinutes: 5,
-  integrityTriggerEveryMinutes: 15,
-  enablePreSignalWarnings: true,
-  preSignalMinScore: 65,
-  preSignalMinutesBeforeClose: 30,
+  bar: '4H', candleTarget: 1800, pageLimit: 300,
+  minTripleSamples: 100, minProbability: 0.60, requireWilsonLowerAbove50: true,
+  leverage: 3, marginPctOfEquity: 0.05, initialEquityUSDT: 1000,
+  takerFeeRate: 0.0005, maxHoldCandles: 1,
+  stopAtrMultiple: 1.4, target1AtrMultiple: 1.0, target2AtrMultiple: 1.8,
+  target1CloseFraction: 0.50, minAtrPct: 0.002, maxAtrPct: 0.04,
+  minVolumeVsAvg20: 0.80, recentWindows: [12, 36, 72],
+  triggerEveryMinutes: 5, integrityTriggerEveryMinutes: 15,
+  enablePreSignalWarnings: true, preSignalMinScore: 65, preSignalMinutesBeforeClose: 30,
+  // Initial, unoptimized per-symbol hypotheses; evaluate in paper trading before tuning.
+  perSymbol: {
+    'BTC-USDT-SWAP': { minTripleSamples: 100, minProbability: 0.60, stopAtrMultiple: 1.4, target1AtrMultiple: 1.0, target2AtrMultiple: 1.8, minAtrPct: 0.002, maxAtrPct: 0.04, minVolumeVsAvg20: 0.80 },
+    'ETH-USDT-SWAP': { minTripleSamples: 100, minProbability: 0.60, stopAtrMultiple: 1.5, target1AtrMultiple: 1.0, target2AtrMultiple: 2.0, minAtrPct: 0.0025, maxAtrPct: 0.05, minVolumeVsAvg20: 0.80 },
+    'SOL-USDT-SWAP': { minTripleSamples: 100, minProbability: 0.62, stopAtrMultiple: 1.8, target1AtrMultiple: 1.2, target2AtrMultiple: 2.4, minAtrPct: 0.004, maxAtrPct: 0.08, minVolumeVsAvg20: 0.85 }
+  },
   sheets: {
     candles: 'M3_Candles', stats: 'M3_MarkovStats', patterns: 'M3_PatternStats',
-    signals: 'M3_Signals', trades: 'M3_PaperTrades', logs: 'M3_Logs'
+    signals: 'M3_Signals', trades: 'M3_PaperTrades', logs: 'M3_Logs', predictions: 'M3_PredictionAccuracy'
   }
 };
+
+function M3_symbolSuffix_() {
+  return String(M3_CONFIG.instrument).replace(/[^A-Z0-9]+/gi, '_');
+}
+function M3_stateKey_(base) {
+  return String(base) + '_' + M3_symbolSuffix_();
+}
+function M3_activateSymbol_(symbol) {
+  M3_restoreBaseConfig_();
+  M3_CONFIG.instrument = symbol;
+  const overrides = M3_CONFIG.perSymbol[symbol] || {};
+  Object.keys(overrides).forEach(k => { M3_CONFIG[k] = overrides[k]; });
+}
+function M3_restoreBaseConfig_() {
+  M3_CONFIG.minTripleSamples = 100; M3_CONFIG.minProbability = 0.60;
+  M3_CONFIG.stopAtrMultiple = 1.4; M3_CONFIG.target1AtrMultiple = 1.0;
+  M3_CONFIG.target2AtrMultiple = 1.8; M3_CONFIG.minAtrPct = 0.002;
+  M3_CONFIG.maxAtrPct = 0.04; M3_CONFIG.minVolumeVsAvg20 = 0.80;
+}
 
 function M3_setup() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const headers = {
     M3_Candles: ['timestamp_ms','timestamp_utc','instrument','open','high','low','close','volume_contracts','volume_base','volume_quote','confirm','state_GR','ema20','ema50','ema200','rsi14','macd_hist','atr14_pct','obv','volume_vs_avg20'],
-    M3_MarkovStats: ['triple','n','next_G','next_R','pG_laplace','pR_laplace','wilsonLowerG95','wilsonLowerR95'],
-    M3_PatternStats: ['pattern5','n','next_G','next_R','pG_laplace','pR_laplace'],
+    M3_MarkovStats: ['instrument','triple','n','next_G','next_R','pG_laplace','pR_laplace','wilsonLowerG95','wilsonLowerR95'],
+    M3_PatternStats: ['instrument','pattern5','n','next_G','next_R','pG_laplace','pR_laplace'],
     M3_Signals: ['evaluated_utc','candle_timestamp_utc','instrument','last_triple','last_five','n_triple','next_G','next_R','pG_laplace','pR_laplace','wilsonLowerG95','wilsonLowerR95','ema20','ema50','ema200','rsi14','macd_hist','atr14_pct','volume_vs_avg20','window12_green_pct','window36_green_pct','window72_green_pct','decision','reasons','signal_score','score_markov','score_trend','score_momentum','score_recent_behavior','score_market_conditions','score_direction'],
-    M3_PaperTrades: ['trade_id','status','side','signal_candle_timestamp_utc','entry_timestamp_utc','entry_price','leverage','margin_usdt','notional_usdt','exit_timestamp_utc','exit_price','gross_pnl_usdt','fees_usdt','net_pnl_usdt','equity_after_usdt','exit_reason','triple','p_direction','atr_at_entry','stop_price','target1_price','target2_price','tp1_hit','remaining_fraction','realized_gross_pnl_usdt','entry_fee_usdt','exit_fees_usdt','entry_signal_score','entry_score_markov','entry_score_trend','entry_score_momentum','entry_score_recent_behavior','entry_score_market_conditions'],
-    M3_Logs: ['timestamp_utc','level','event','details']
+    M3_PaperTrades: ['instrument','trade_id','status','side','signal_candle_timestamp_utc','entry_timestamp_utc','entry_price','leverage','margin_usdt','notional_usdt','exit_timestamp_utc','exit_price','gross_pnl_usdt','fees_usdt','net_pnl_usdt','equity_after_usdt','exit_reason','triple','p_direction','atr_at_entry','stop_price','target1_price','target2_price','tp1_hit','remaining_fraction','realized_gross_pnl_usdt','entry_fee_usdt','exit_fees_usdt','entry_signal_score','entry_score_markov','entry_score_trend','entry_score_momentum','entry_score_recent_behavior','entry_score_market_conditions'],
+    M3_Logs: ['timestamp_utc','instrument','level','event','details'],
+    M3_PredictionAccuracy: ['candle_timestamp_utc','instrument','triple','prior_samples','pG_laplace','pR_laplace','predicted_state','actual_state','prediction_status','correct','cumulative_correct','cumulative_predictions','cumulative_accuracy_pct']
   };
   Object.keys(headers).forEach(name => {
     let sh = ss.getSheetByName(name);
     if (!sh) sh = ss.insertSheet(name);
-    if (sh.getLastRow() === 0) {
-      sh.getRange(1,1,1,headers[name].length).setValues([headers[name]]);
+    const desired = headers[name];
+    const lastRow = sh.getLastRow();
+    const lastCol = sh.getLastColumn();
+    if (lastRow === 0 || lastCol === 0) {
+      sh.getRange(1,1,1,desired.length).setValues([desired]);
       sh.setFrozenRows(1);
-    } else {
-      // Safe schema upgrade: append newly introduced columns without overwriting user data.
-      const current = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(String);
-      headers[name].forEach(h => {
-        if (current.indexOf(h) === -1) {
-          sh.getRange(1,sh.getLastColumn()+1).setValue(h);
-          current.push(h);
-        }
-      });
+      return;
     }
+
+    // Reorder existing columns to the canonical schema while preserving every named field.
+    // This matters for legacy BTC-only sheets: instrument may have been appended at the end,
+    // while candle readers expect it in column C. Unknown extra columns are retained at the end.
+    const oldHeaders = sh.getRange(1,1,1,lastCol).getValues()[0].map(String);
+    const allHeaders = desired.concat(oldHeaders.filter(h => desired.indexOf(h) === -1));
+    const oldRows = lastRow > 1 ? sh.getRange(2,1,lastRow-1,lastCol).getValues() : [];
+    const migratedRows = oldRows.map(values => {
+      const record = {};
+      oldHeaders.forEach((h,i) => { if (h) record[h] = values[i]; });
+      if (allHeaders.indexOf('instrument') !== -1 && (record.instrument === '' || record.instrument == null)) {
+        record.instrument = 'BTC-USDT-SWAP';
+      }
+      return allHeaders.map(h => Object.prototype.hasOwnProperty.call(record,h) ? record[h] : '');
+    });
+    sh.getRange(1,1,Math.max(lastRow,1),Math.max(lastCol,allHeaders.length)).clearContent();
+    sh.getRange(1,1,1,allHeaders.length).setValues([allHeaders]);
+    if (migratedRows.length) sh.getRange(2,1,migratedRows.length,allHeaders.length).setValues(migratedRows);
+    sh.setFrozenRows(1);
   });
   const p = PropertiesService.getScriptProperties();
-  if (!p.getProperty('M3_PAPER_EQUITY')) p.setProperty('M3_PAPER_EQUITY', String(M3_CONFIG.initialEquityUSDT));
-  M3_log_('INFO','SETUP','M3 sheets created/verified; existing sheets were not modified.');
+  // Migrate legacy single-symbol BTC state so an existing BTC paper position is not orphaned.
+  M3_activateSymbol_('BTC-USDT-SWAP');
+  ['M3_PAPER_EQUITY','M3_ACTIVE_TRADE','M3_LAST_PROCESSED_CANDLE_TS','M3_LAST_ALERTED_SIGNAL_CANDLE_TS','M3_PRE_SIGNAL_SENT_KEYS'].forEach(base => {
+    const newKey=M3_stateKey_(base), oldValue=p.getProperty(base);
+    if (!p.getProperty(newKey) && oldValue !== null) p.setProperty(newKey, oldValue);
+  });
+  M3_CONFIG.symbols.forEach(symbol => {
+    M3_activateSymbol_(symbol);
+    const key=M3_stateKey_('M3_PAPER_EQUITY');
+    if (!p.getProperty(key)) p.setProperty(key, String(M3_CONFIG.initialEquityUSDT));
+  });
+  M3_activateSymbol_(M3_CONFIG.symbols[0]);
+  M3_log_('INFO','SETUP','Multi-symbol sheets created/verified; per-symbol paper equity initialized; existing rows preserved.');
 }
 
 function M3_installTrigger() {
@@ -19884,7 +20686,7 @@ function M3_installTrigger() {
     .forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('M3_run').timeBased().everyMinutes(M3_CONFIG.triggerEveryMinutes).create();
   ScriptApp.newTrigger('M3_integrityCheck').timeBased().everyMinutes(M3_CONFIG.integrityTriggerEveryMinutes).create();
-  M3_log_('INFO','TRIGGERS_INSTALLED','M3_run every 5 minutes; M3_integrityCheck every 15 minutes. Closed-candle processing is deduplicated; provisional PRE-SIGNAL warnings are separately deduplicated by candle and direction.');
+  M3_log_('INFO','TRIGGERS_INSTALLED','M3_run every 5 minutes for BTC/ETH/SOL; M3_integrityCheck every 15 minutes per symbol. Closed-candle processing is deduplicated; provisional PRE-SIGNAL warnings are separately deduplicated by candle and direction.');
 }
 
 /**
@@ -19896,34 +20698,35 @@ function M3_installTrigger() {
 function M3_integrityCheck() {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(20000)) return;
+  let needsRun = false;
   try {
-    const recent = M3_fetchRecentConfirmed_(10);
-    const issues = M3_validateRecentCandles_(recent);
-    if (issues.length) {
-      M3_log_('WARN','DATA_INTEGRITY_CHECK',JSON.stringify(issues));
-      M3_sendErrorAlert_('INTEGRITY_CHECK','DATA_INTEGRITY_CHECK: '+JSON.stringify(issues));
-      return;
-    }
-    const latest = recent[recent.length - 1];
-    const props = PropertiesService.getScriptProperties();
-    const processed = props.getProperty('M3_LAST_PROCESSED_CANDLE_TS');
-    M3_log_('INFO','DATA_INTEGRITY_OK',JSON.stringify({latestClosedCandleTs:latest.ts,processedCandleTs:processed}));
-    M3_clearErrorAlert_('INTEGRITY_CHECK');
-    if (String(latest.ts) !== String(processed)) {
-      // Release the watchdog lock before calling M3_run, which acquires the same script lock.
-      lock.releaseLock();
-      M3_run();
-      return;
-    }
-    M3_retryPendingEntryAlert_();
-  } catch (e) {
-    const detail=String(e && e.stack ? e.stack : e);
-    M3_log_('ERROR','INTEGRITY_CHECK_FAILED',detail);
-    M3_sendErrorAlert_('INTEGRITY_CHECK',detail);
+    M3_CONFIG.symbols.forEach(symbol => {
+      M3_activateSymbol_(symbol);
+      try {
+        const recent=M3_fetchRecentConfirmed_(10);
+        const issues=M3_validateRecentCandles_(recent);
+        if (issues.length) {
+          M3_log_('WARN','DATA_INTEGRITY_CHECK',JSON.stringify(issues));
+          M3_sendErrorAlert_('INTEGRITY_CHECK',JSON.stringify(issues));
+          return;
+        }
+        const latest=recent[recent.length-1];
+        const props=PropertiesService.getScriptProperties();
+        const processed=props.getProperty(M3_stateKey_('M3_LAST_PROCESSED_CANDLE_TS'));
+        M3_log_('INFO','DATA_INTEGRITY_OK',JSON.stringify({instrument:symbol,latestClosedCandleTs:latest.ts,processedCandleTs:processed}));
+        M3_clearErrorAlert_('INTEGRITY_CHECK');
+        if(String(latest.ts)!==String(processed)) needsRun=true;
+        else M3_retryPendingEntryAlert_();
+      } catch (e) {
+        const detail=String(e && e.stack ? e.stack : e);
+        M3_log_('ERROR','INTEGRITY_CHECK_FAILED',detail);
+        M3_sendErrorAlert_('INTEGRITY_CHECK',detail);
+      }
+    });
   } finally {
-    // releaseLock() is safe only while this execution still owns it.
     try { lock.releaseLock(); } catch (ignored) {}
   }
+  if (needsRun) M3_run();
 }
 
 function M3_fetchRecentConfirmed_(limit) {
@@ -19954,14 +20757,28 @@ function M3_validateRecentCandles_(candles) {
 }
 
 function M3_run() {
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(20000)) return;
+  const lock=LockService.getScriptLock();
+  if(!lock.tryLock(20000)) return;
   try {
+    M3_CONFIG.symbols.forEach(symbol => {
+      M3_activateSymbol_(symbol);
+      M3_runSymbol_();
+    });
+  } finally {
+    M3_restoreBaseConfig_();
+    M3_activateSymbol_(M3_CONFIG.symbols[0]);
+    lock.releaseLock();
+  }
+}
+
+function M3_runSymbol_() {
+  const props=PropertiesService.getScriptProperties();
+  try {
+
     // Provisional warning only: never opens or records a paper position.
     M3_checkPreSignal_();
-    const props = PropertiesService.getScriptProperties();
     const latest = M3_fetchLatestClosed_();
-    const processed = props.getProperty('M3_LAST_PROCESSED_CANDLE_TS');
+    const processed = props.getProperty(M3_stateKey_('M3_LAST_PROCESSED_CANDLE_TS'));
     if (String(latest.ts) === String(processed)) {
       // Same candle: never duplicate the alert; retry only if a prior Telegram
       // send was not confirmed and the matching paper entry is still pending.
@@ -19973,6 +20790,8 @@ function M3_run() {
     if (candles.length < 300) throw new Error('Not enough confirmed candles: ' + candles.length);
     const enriched = M3_addIndicators_(candles);
     M3_writeCandles_(enriched);
+    // Expanding-window, no-look-ahead validation of Markov G/R predictions.
+    M3_writePredictionAccuracy_(enriched);
     const last = enriched[enriched.length - 1];
     if (last.ts !== latest.ts) throw new Error('Latest closed candle mismatch between API requests.');
 
@@ -19984,19 +20803,16 @@ function M3_run() {
     const result = M3_evaluate_(enriched, stats);
     M3_writeSignal_(result);
     M3_openPaperTradeIfValid_(result, last);
-    props.setProperty('M3_LAST_PROCESSED_CANDLE_TS', String(last.ts));
+    props.setProperty(M3_stateKey_('M3_LAST_PROCESSED_CANDLE_TS'), String(last.ts));
     M3_log_('INFO','CANDLE_PROCESSED',JSON.stringify({ts:last.ts,decision:result.decision,triple:result.triple,n:result.n}));
     M3_clearErrorAlert_('RUN');
   } catch (e) {
     const detail=String(e && e.stack ? e.stack : e);
     M3_log_('ERROR','RUN_FAILED',detail);
     M3_sendErrorAlert_('RUN',detail);
-    throw e;
-  } finally {
-    lock.releaseLock();
+    // Isolate symbol failures: remaining symbols still get evaluated by M3_run().
   }
 }
-
 
 function M3_fetchLatestClosed_() {
   const url='https://www.okx.com/api/v5/market/candles?instId='+encodeURIComponent(M3_CONFIG.instrument)+'&bar='+encodeURIComponent(M3_CONFIG.bar)+'&limit=10';
@@ -20129,48 +20945,102 @@ function M3_evaluate_(candles, stats) {
  */
 function M3_checkPreSignal_() {
   if (!M3_CONFIG.enablePreSignalWarnings) return;
+  const now=Date.now();
+  // OKX 4H candles are aligned to UTC 4-hour boundaries. This fallback timestamp
+  // lets us record a missing-data diagnostic without creating repeated log rows.
+  const expectedLiveTs=Math.floor(now/(4*60*60*1000))*(4*60*60*1000);
+  let live=null;
   try {
-    const now=Date.now();
     const stored=M3_readStoredCandles_();
-    if(stored.length<300) return;
-    const live=M3_fetchLiveCandle_();
-    if(!live) return;
+    if(stored.length<300) {
+      M3_logPreSignalDiagnostic_('PRE_SIGNAL_DIAGNOSTIC',expectedLiveTs,'INSUFFICIENT_STORED_CANDLES; stored='+stored.length+'; required=300');
+      return;
+    }
+    live=M3_fetchLiveCandle_();
+    if(!live) {
+      M3_logPreSignalDiagnostic_('PRE_SIGNAL_DIAGNOSTIC',expectedLiveTs,'LIVE_CANDLE_NOT_FOUND_OR_INVALID');
+      return;
+    }
     const lastClosed=stored[stored.length-1];
-    if(Number(live.ts)!==Number(lastClosed.ts)+4*60*60*1000) return;
+    if(Number(live.ts)!==Number(lastClosed.ts)+4*60*60*1000) {
+      M3_logPreSignalDiagnostic_('PRE_SIGNAL_DIAGNOSTIC',live.ts,'LIVE_CANDLE_TIMESTAMP_MISMATCH; liveTs='+live.ts+'; lastClosedTs='+lastClosed.ts);
+      return;
+    }
     const msToClose=live.ts+4*60*60*1000-now;
     const minutesToClose=msToClose/60000;
-    if(minutesToClose<=0 || minutesToClose>M3_CONFIG.preSignalMinutesBeforeClose) return;
+    if(minutesToClose<=0 || minutesToClose>M3_CONFIG.preSignalMinutesBeforeClose) {
+      M3_logPreSignalDiagnostic_('PRE_SIGNAL_WINDOW_STATUS',live.ts,'OUTSIDE_30_MIN_WINDOW; minutesToClose='+minutesToClose.toFixed(1)+'; configuredWindow='+M3_CONFIG.preSignalMinutesBeforeClose+' minutes');
+      return;
+    }
 
     const closedEnriched=M3_addIndicators_(stored);
     const stats=M3_buildStats_(closedEnriched);
     const allEnriched=M3_addIndicators_(stored.concat([live]));
     const triple=closedEnriched.slice(-3).map(c=>c.state).join('');
-    if(!/^[GR]{3}$/.test(triple)) return;
+    if(!/^[GR]{3}$/.test(triple)) {
+      M3_logPreSignalDiagnostic_('PRE_SIGNAL_DIAGNOSTIC',live.ts,'LATEST_3_CLOSED_CANDLES_CONTAIN_DOJI_OR_INVALID_STATE; triple='+triple);
+      return;
+    }
+
     const st=stats.triples[triple]||{n:0,g:0,r:0};
     const pG=(st.g+1)/(st.n+2), pR=(st.r+1)/(st.n+2);
     const candidate=pG>=pR?'LONG':'SHORT';
     const pDir=candidate==='LONG'?pG:pR;
     const lower=candidate==='LONG'?M3_wilsonLower_(st.g,st.n):M3_wilsonLower_(st.r,st.n);
-    // Keep the Markov precondition aligned with the existing strategy; this is still not an entry.
-    if(st.n<M3_CONFIG.minTripleSamples || pDir<M3_CONFIG.minProbability) return;
-    if(M3_CONFIG.requireWilsonLowerAbove50 && lower<=0.50) return;
-
     const score=M3_computeSignalScore_(allEnriched,stats,candidate,triple,true);
-    if(score.total<M3_CONFIG.preSignalMinScore) return;
+    const blockers=[];
+    if(st.n<M3_CONFIG.minTripleSamples) blockers.push('INSUFFICIENT_TRIPLE_SAMPLE n='+st.n+' required='+M3_CONFIG.minTripleSamples);
+    if(pDir<M3_CONFIG.minProbability) blockers.push('PROBABILITY_BELOW_THRESHOLD p='+pDir.toFixed(4)+' required='+M3_CONFIG.minProbability);
+    if(M3_CONFIG.requireWilsonLowerAbove50 && lower<=0.50) blockers.push('WILSON_LOWER_NOT_ABOVE_50 lower='+lower.toFixed(4));
+    if(score.total<M3_CONFIG.preSignalMinScore) blockers.push('SCORE_BELOW_65 score='+score.total.toFixed(1)+' required='+M3_CONFIG.preSignalMinScore);
+
+    if(blockers.length) {
+      M3_logPreSignalDiagnostic_('PRE_SIGNAL_DIAGNOSTIC',live.ts,JSON.stringify({reason:blockers.join('; '),direction:candidate,score:score.total,minutesToClose:Number(minutesToClose.toFixed(1)),triple:triple,n:st.n,pDirection:pDir,wilsonLower:lower,scoreComponents:{markov:score.markov,trend:score.trend,momentum:score.momentum,recentBehavior:score.recentBehavior,marketConditions:score.marketConditions}}));
+      return;
+    }
+
     const key=String(live.ts)+'_'+candidate;
     const sentKeys=M3_getPreSignalKeys_();
-    if(sentKeys.indexOf(key)!==-1) return;
+    if(sentKeys.indexOf(key)!==-1) {
+      M3_logPreSignalDiagnostic_('PRE_SIGNAL_DIAGNOSTIC',live.ts,'PRE_SIGNAL_ALREADY_SENT_FOR_CANDLE_AND_DIRECTION; direction='+candidate);
+      return;
+    }
     const remaining=Math.max(0,Math.ceil(minutesToClose));
-    const msg='🔔 BTC MARKOV — PRE-SIGNAL\n⚠️ WARNING ONLY — NOT AN ENTRY / NOT A TRADE\n\nInstrument: '+M3_CONFIG.instrument+' · 4H\nPossible direction: '+candidate+'\nProvisional Signal Score: '+score.total.toFixed(1)+'/100\nTime to candle close: ~'+remaining+' minutes\nMarkov triple (last 3 closed candles): '+triple+' (N='+st.n+')\nDirectional Markov probability: '+(100*pDir).toFixed(1)+'%\n\nScore components (heuristic): Markov '+score.markov.toFixed(1)+'/35; trend '+score.trend.toFixed(1)+'/20; momentum '+score.momentum.toFixed(1)+'/15; recent behavior '+score.recentBehavior.toFixed(1)+'/15; market conditions '+score.marketConditions.toFixed(1)+'/15.\n\nThe current candle is still open; indicators and direction may change. Score is NOT a probability of profit. No paper trade is opened by this warning. Final evaluation occurs after the candle closes.';
+    const msg='🔔 '+M3_CONFIG.instrument+' MARKOV — PRE-SIGNAL\n⚠️ WARNING ONLY — NOT AN ENTRY / NOT A TRADE\n\nInstrument: '+M3_CONFIG.instrument+' · 4H\nPossible direction: '+candidate+'\nProvisional Signal Score: '+score.total.toFixed(1)+'/100\nTime to candle close: ~'+remaining+' minutes\nMarkov triple (last 3 closed candles): '+triple+' (N='+st.n+')\nDirectional Markov probability: '+(100*pDir).toFixed(1)+'%\n\nScore components (heuristic): Markov '+score.markov.toFixed(1)+'/35; trend '+score.trend.toFixed(1)+'/20; momentum '+score.momentum.toFixed(1)+'/15; recent behavior '+score.recentBehavior.toFixed(1)+'/15; market conditions '+score.marketConditions.toFixed(1)+'/15.\n\nThe current candle is still open; indicators and direction may change. Score is NOT a probability of profit. No paper trade is opened by this warning. Final evaluation occurs after the candle closes.';
     if(M3_telegram_(msg)) {
       sentKeys.push(key);
       M3_savePreSignalKeys_(sentKeys,live.ts);
       M3_log_('INFO','PRE_SIGNAL_SENT',JSON.stringify({candleTs:live.ts,direction:candidate,score:score.total,minutesToClose:minutesToClose,triple:triple,n:st.n}));
+    } else {
+      M3_logPreSignalDiagnostic_('PRE_SIGNAL_DIAGNOSTIC',live.ts,'PRE_SIGNAL_CONDITIONS_MET_BUT_TELEGRAM_NOT_CONFIRMED; direction='+candidate+'; score='+score.total.toFixed(1));
     }
   } catch(e) {
     M3_log_('WARN','PRE_SIGNAL_CHECK_FAILED',String(e && e.stack ? e.stack : e));
     // A provisional-warning failure must never prevent normal closed-candle processing.
   }
+}
+
+/**
+ * Write each diagnostic event at most once per 4H candle and instrument.
+ * Different event types have separate deduplication keys, so an outside-window
+ * status does not suppress the useful in-window filter diagnosis later.
+ */
+function M3_logPreSignalDiagnostic_(event,candleTs,details) {
+  const ts=Number(candleTs)||Math.floor(Date.now()/(4*60*60*1000))*(4*60*60*1000);
+  const key=String(event)+'_'+String(ts);
+  const props=PropertiesService.getScriptProperties();
+  const propKey=M3_stateKey_('M3_PRE_SIGNAL_DIAG_KEYS');
+  let entries=[];
+  try {
+    const parsed=JSON.parse(props.getProperty(propKey)||'[]');
+    if(Array.isArray(parsed)) entries=parsed.filter(x=>x&&x.key&&Number(x.ts)>0);
+  } catch(ignored) {}
+  if(entries.some(x=>x.key===key)) return;
+  M3_log_('INFO',event,String(details));
+  entries.push({key:key,ts:ts});
+  const cutoff=Date.now()-10*24*60*60*1000;
+  entries=entries.filter(x=>Number(x.ts)>=cutoff).slice(-300);
+  props.setProperty(propKey,JSON.stringify(entries));
 }
 
 function M3_fetchLiveCandle_() {
@@ -20190,9 +21060,11 @@ function M3_fetchLiveCandle_() {
 function M3_readStoredCandles_() {
   const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(M3_CONFIG.sheets.candles);
   if(!sh || sh.getLastRow()<2) return [];
-  const start=Math.max(2,sh.getLastRow()-M3_CONFIG.candleTarget+1);
-  const rows=sh.getRange(start,1,sh.getLastRow()-start+1,20).getValues();
-  return rows.filter(r=>Number(r[0])>0).map(r=>({ts:Number(r[0]),open:Number(r[3]),high:Number(r[4]),low:Number(r[5]),close:Number(r[6]),volContracts:Number(r[7]),volBase:Number(r[8]),volQuote:Number(r[9]),confirm:String(r[10])})).sort((a,b)=>a.ts-b.ts);
+  const rows=sh.getRange(2,1,sh.getLastRow()-1,20).getValues();
+  return rows.filter(r=>String(r[2])===String(M3_CONFIG.instrument) && Number(r[0])>0)
+    .map(r=>({ts:Number(r[0]),open:Number(r[3]),high:Number(r[4]),low:Number(r[5]),close:Number(r[6]),volContracts:Number(r[7]),volBase:Number(r[8]),volQuote:Number(r[9]),confirm:String(r[10])}))
+    .sort((a,b)=>a.ts-b.ts)
+    .slice(-M3_CONFIG.candleTarget);
 }
 
 function M3_computeSignalScore_(candles,stats,candidate,tripleOverride,isProvisional) {
@@ -20246,20 +21118,20 @@ function M3_computeSignalScore_(candles,stats,candidate,tripleOverride,isProvisi
 }
 
 function M3_getPreSignalKeys_() {
-  const raw=PropertiesService.getScriptProperties().getProperty('M3_PRE_SIGNAL_SENT_KEYS');
+  const raw=PropertiesService.getScriptProperties().getProperty(M3_stateKey_('M3_PRE_SIGNAL_SENT_KEYS'));
   if(!raw) return [];
   try { const parsed=JSON.parse(raw); return Array.isArray(parsed)?parsed.map(String):[]; } catch(e) { return []; }
 }
 function M3_savePreSignalKeys_(keys,currentCandleTs) {
   const cutoff=Number(currentCandleTs)-10*24*60*60*1000;
   const recent=keys.filter(k=>{const ts=Number(String(k).split('_')[0]);return Number.isFinite(ts)&&ts>=cutoff;}).slice(-100);
-  PropertiesService.getScriptProperties().setProperty('M3_PRE_SIGNAL_SENT_KEYS',JSON.stringify(recent));
+  PropertiesService.getScriptProperties().setProperty(M3_stateKey_('M3_PRE_SIGNAL_SENT_KEYS'),JSON.stringify(recent));
 }
 
 function M3_openPaperTradeIfValid_(r, signalCandle) {
   if(!r.side) return;
   const props=PropertiesService.getScriptProperties();
-  const existingRaw=props.getProperty('M3_ACTIVE_TRADE');
+  const existingRaw=props.getProperty(M3_stateKey_('M3_ACTIVE_TRADE'));
   if(existingRaw) {
     const existing=JSON.parse(existingRaw);
     if(String(existing.signalTs)===String(signalCandle.ts)) M3_sendEntryAlertOnce_(existing,r.n,r.pDirection);
@@ -20269,7 +21141,7 @@ function M3_openPaperTradeIfValid_(r, signalCandle) {
   const atr=Number(signalCandle.atr14 || (signalCandle.atr14Pct*signalCandle.close));
   if(!(atr>0)) { M3_log_('WARN','ENTRY_SKIPPED','ATR is invalid; cannot calculate SL/TP.'); return; }
   const ticker=M3_fetchTicker_();
-  const equity=Number(props.getProperty('M3_PAPER_EQUITY')||M3_CONFIG.initialEquityUSDT);
+  const equity=Number(props.getProperty(M3_stateKey_('M3_PAPER_EQUITY'))||M3_CONFIG.initialEquityUSDT);
   const margin=equity*M3_CONFIG.marginPctOfEquity;
   const notional=margin*M3_CONFIG.leverage;
   const direction=r.side==='LONG'?1:-1;
@@ -20278,17 +21150,17 @@ function M3_openPaperTradeIfValid_(r, signalCandle) {
   const target2Price=ticker+direction*M3_CONFIG.target2AtrMultiple*atr;
   const entryFee=notional*M3_CONFIG.takerFeeRate;
   const trade={
-    id:'M3-'+signalCandle.ts,status:'OPEN',side:r.side,signalTs:signalCandle.ts,entryTs:Date.now(),entryPrice:ticker,
+    id:'M3-'+M3_symbolSuffix_()+'-'+signalCandle.ts,instrument:M3_CONFIG.instrument,status:'OPEN',side:r.side,signalTs:signalCandle.ts,entryTs:Date.now(),entryPrice:ticker,
     leverage:M3_CONFIG.leverage,margin:margin,notional:notional,remainingFraction:1,tp1Hit:false,
     stopPrice:stopPrice,initialStopPrice:stopPrice,target1Price:target1Price,target2Price:target2Price,atrAtEntry:atr,
     triple:r.triple,pDirection:r.pDirection,signalScore:r.signalScore,scoreMarkov:r.scoreMarkov,scoreTrend:r.scoreTrend,scoreMomentum:r.scoreMomentum,scoreRecentBehavior:r.scoreRecentBehavior,scoreMarketConditions:r.scoreMarketConditions,entryEquity:equity,n:r.n,entryFee:entryFee,exitFees:0,
     candlesHeld:0,lastEvaluatedCandleTs:signalCandle.ts
   };
   // Charge entry commission immediately; collateral/margin itself is not deducted from equity.
-  props.setProperty('M3_PAPER_EQUITY',String(equity-entryFee));
-  props.setProperty('M3_ACTIVE_TRADE',JSON.stringify(trade));
+  props.setProperty(M3_stateKey_('M3_PAPER_EQUITY'),String(equity-entryFee));
+  props.setProperty(M3_stateKey_('M3_ACTIVE_TRADE'),JSON.stringify(trade));
   M3_appendTradeRecord_({
-    trade_id:trade.id,status:'OPEN',side:trade.side,signal_candle_timestamp_utc:new Date(trade.signalTs).toISOString(),
+    instrument:M3_CONFIG.instrument,trade_id:trade.id,status:'OPEN',side:trade.side,signal_candle_timestamp_utc:new Date(trade.signalTs).toISOString(),
     entry_timestamp_utc:new Date(trade.entryTs).toISOString(),entry_price:trade.entryPrice,leverage:trade.leverage,
     margin_usdt:trade.margin,notional_usdt:trade.notional,equity_after_usdt:equity-entryFee,triple:trade.triple,p_direction:trade.pDirection,
     atr_at_entry:trade.atrAtEntry,stop_price:trade.stopPrice,target1_price:trade.target1Price,target2_price:trade.target2Price,
@@ -20300,15 +21172,15 @@ function M3_openPaperTradeIfValid_(r, signalCandle) {
 
 function M3_sendEntryAlertOnce_(trade, sampleN, pDirection) {
   const props=PropertiesService.getScriptProperties();
-  const alertedTs=props.getProperty('M3_LAST_ALERTED_SIGNAL_CANDLE_TS');
+  const alertedTs=props.getProperty(M3_stateKey_('M3_LAST_ALERTED_SIGNAL_CANDLE_TS'));
   if(String(alertedTs)===String(trade.signalTs)) return true;
   const dir=trade.side==='LONG'?1:-1;
   const rr1=(Math.abs(trade.target1Price-trade.entryPrice)/Math.abs(trade.entryPrice-trade.initialStopPrice));
   const rr2=(Math.abs(trade.target2Price-trade.entryPrice)/Math.abs(trade.entryPrice-trade.initialStopPrice));
-  const msg='🧪 BTC SWAP PAPER — NEW '+trade.side+'\nInstrument: '+M3_CONFIG.instrument+' · 4H\nSignal candle: '+new Date(trade.signalTs).toISOString()+'\nEntry: '+M3_fmtPrice_(trade.entryPrice)+' USDT\nATR(14): '+M3_fmtPrice_(trade.atrAtEntry)+' USDT\n\n🛑 Initial Stop Loss: '+M3_fmtPrice_(trade.initialStopPrice)+' USDT ('+M3_CONFIG.stopAtrMultiple+' × ATR)\n🎯 Target 1: '+M3_fmtPrice_(trade.target1Price)+' USDT ('+M3_CONFIG.target1AtrMultiple+' × ATR; close '+(100*M3_CONFIG.target1CloseFraction)+'%)\n🎯 Target 2: '+M3_fmtPrice_(trade.target2Price)+' USDT ('+M3_CONFIG.target2AtrMultiple+' × ATR; close remaining)\nAfter TP1: move stop on remaining size to break-even ('+M3_fmtPrice_(trade.entryPrice)+' USDT)\nMax holding time: '+M3_CONFIG.maxHoldCandles+' completed 4H candle(s)\n\nSide: '+trade.side+'\nLeverage: '+trade.leverage+'x isolated simulation\nMargin: '+trade.margin.toFixed(2)+' USDT\nNotional: '+trade.notional.toFixed(2)+' USDT\nEstimated entry fee: '+trade.entryFee.toFixed(4)+' USDT\nP(direction): '+(100*Number(pDirection||trade.pDirection)).toFixed(1)+'%\nMarkov triple: '+trade.triple+' (N='+Number(sampleN||trade.n||0)+')\nSignal Score: '+(trade.signalScore==null?'N/A':Number(trade.signalScore).toFixed(1)+'/100')+' (heuristic alignment score, not win probability)\nExecution: PAPER ONLY — no real order sent.\nCandle conflict policy: stop-first, conservative OHLC simulation.';
+  const msg='🧪 '+M3_CONFIG.instrument+' PAPER — NEW '+trade.side+'\nInstrument: '+M3_CONFIG.instrument+' · 4H\nSignal candle: '+new Date(trade.signalTs).toISOString()+'\nEntry: '+M3_fmtPrice_(trade.entryPrice)+' USDT\nATR(14): '+M3_fmtPrice_(trade.atrAtEntry)+' USDT\n\n🛑 Initial Stop Loss: '+M3_fmtPrice_(trade.initialStopPrice)+' USDT ('+M3_CONFIG.stopAtrMultiple+' × ATR)\n🎯 Target 1: '+M3_fmtPrice_(trade.target1Price)+' USDT ('+M3_CONFIG.target1AtrMultiple+' × ATR; close '+(100*M3_CONFIG.target1CloseFraction)+'%)\n🎯 Target 2: '+M3_fmtPrice_(trade.target2Price)+' USDT ('+M3_CONFIG.target2AtrMultiple+' × ATR; close remaining)\nAfter TP1: move stop on remaining size to break-even ('+M3_fmtPrice_(trade.entryPrice)+' USDT)\nMax holding time: '+M3_CONFIG.maxHoldCandles+' completed 4H candle(s)\n\nSide: '+trade.side+'\nLeverage: '+trade.leverage+'x isolated simulation\nMargin: '+trade.margin.toFixed(2)+' USDT\nNotional: '+trade.notional.toFixed(2)+' USDT\nEstimated entry fee: '+trade.entryFee.toFixed(4)+' USDT\nP(direction): '+(100*Number(pDirection||trade.pDirection)).toFixed(1)+'%\nMarkov triple: '+trade.triple+' (N='+Number(sampleN||trade.n||0)+')\nSignal Score: '+(trade.signalScore==null?'N/A':Number(trade.signalScore).toFixed(1)+'/100')+' (heuristic alignment score, not win probability)\nManual OKX execution is up to you; the sheet records a parallel paper simulation. The script sends no real order.\nCandle conflict policy: stop-first, conservative OHLC simulation.';
   const sent=M3_telegram_(msg);
   if(sent) {
-    props.setProperty('M3_LAST_ALERTED_SIGNAL_CANDLE_TS',String(trade.signalTs));
+    props.setProperty(M3_stateKey_('M3_LAST_ALERTED_SIGNAL_CANDLE_TS'),String(trade.signalTs));
     M3_log_('INFO','ENTRY_ALERT_SENT','signalCandleTs='+trade.signalTs);
     return true;
   }
@@ -20318,10 +21190,10 @@ function M3_sendEntryAlertOnce_(trade, sampleN, pDirection) {
 
 function M3_retryPendingEntryAlert_() {
   const props=PropertiesService.getScriptProperties();
-  const raw=props.getProperty('M3_ACTIVE_TRADE');
+  const raw=props.getProperty(M3_stateKey_('M3_ACTIVE_TRADE'));
   if(!raw) return;
   const trade=JSON.parse(raw);
-  if(String(props.getProperty('M3_LAST_ALERTED_SIGNAL_CANDLE_TS'))===String(trade.signalTs)) return;
+  if(String(props.getProperty(M3_stateKey_('M3_LAST_ALERTED_SIGNAL_CANDLE_TS')))===String(trade.signalTs)) return;
   M3_sendEntryAlertOnce_(trade,trade.n,trade.pDirection);
 }
 
@@ -20333,7 +21205,7 @@ function M3_retryPendingEntryAlert_() {
  */
 function M3_closeDuePaperTrade_(candle) {
   const props=PropertiesService.getScriptProperties();
-  const raw=props.getProperty('M3_ACTIVE_TRADE'); if(!raw) return;
+  const raw=props.getProperty(M3_stateKey_('M3_ACTIVE_TRADE')); if(!raw) return;
   const t=JSON.parse(raw);
   if(candle.ts<=Number(t.lastEvaluatedCandleTs||t.signalTs)) return;
   const isLong=t.side==='LONG', dir=isLong?1:-1;
@@ -20350,8 +21222,8 @@ function M3_closeDuePaperTrade_(candle) {
     M3_realizeFraction_(t,M3_CONFIG.target1CloseFraction,t.target1Price,candle.ts,'TARGET_1');
     t.tp1Hit=true;
     t.stopPrice=t.entryPrice; // move stop to break-even for the remaining half
-    M3_updateTradeRecord_(t.id,{status:'PARTIAL_TP1',tp1_hit:true,stop_price:t.stopPrice,remaining_fraction:t.remainingFraction,realized_gross_pnl_usdt:t.realizedGross,exit_fees_usdt:t.exitFees,equity_after_usdt:Number(props.getProperty('M3_PAPER_EQUITY')||0)});
-    M3_telegram_('🧪 BTC SWAP PAPER — TARGET 1 HIT\nSide: '+t.side+'\nTarget 1 fill: '+M3_fmtPrice_(t.target1Price)+' USDT\nClosed: '+(100*M3_CONFIG.target1CloseFraction)+'%\nGross realized PnL: '+t.realizedGross.toFixed(4)+' USDT\nRemaining: '+(100*t.remainingFraction).toFixed(1)+'%\nStop moved to break-even: '+M3_fmtPrice_(t.entryPrice)+' USDT');
+    M3_updateTradeRecord_(t.id,{status:'PARTIAL_TP1',tp1_hit:true,stop_price:t.stopPrice,remaining_fraction:t.remainingFraction,realized_gross_pnl_usdt:t.realizedGross,exit_fees_usdt:t.exitFees,equity_after_usdt:Number(props.getProperty(M3_stateKey_('M3_PAPER_EQUITY'))||0)});
+    M3_telegram_('🧪 '+M3_CONFIG.instrument+' PAPER — TARGET 1 HIT\nSide: '+t.side+'\nTarget 1 fill: '+M3_fmtPrice_(t.target1Price)+' USDT\nClosed: '+(100*M3_CONFIG.target1CloseFraction)+'%\nGross realized PnL: '+t.realizedGross.toFixed(4)+' USDT\nRemaining: '+(100*t.remainingFraction).toFixed(1)+'%\nStop moved to break-even: '+M3_fmtPrice_(t.entryPrice)+' USDT');
 
     // If this candle also crossed the new break-even stop, use the conservative outcome.
     if(M3_stopTouched_(t,candle)) {
@@ -20369,7 +21241,7 @@ function M3_closeDuePaperTrade_(candle) {
     M3_exitRemaining_(t,candle.close,candle.ts,'MAX_HOLD_4H_CLOSE');
     return;
   }
-  props.setProperty('M3_ACTIVE_TRADE',JSON.stringify(t));
+  props.setProperty(M3_stateKey_('M3_ACTIVE_TRADE'),JSON.stringify(t));
 }
 
 function M3_stopTouched_(t,c) {
@@ -20391,15 +21263,15 @@ function M3_realizeFraction_(t,fraction,price,ts,reason) {
   t.realizedGross=Number(t.realizedGross||0)+gross;
   t.exitFees=Number(t.exitFees||0)+exitFee;
   t.remainingFraction=Math.max(0,Number(t.remainingFraction)-qtyFraction);
-  const equity=Number(props.getProperty('M3_PAPER_EQUITY')||t.entryEquity)+gross-exitFee;
-  props.setProperty('M3_PAPER_EQUITY',String(equity));
+  const equity=Number(props.getProperty(M3_stateKey_('M3_PAPER_EQUITY'))||t.entryEquity)+gross-exitFee;
+  props.setProperty(M3_stateKey_('M3_PAPER_EQUITY'),String(equity));
   M3_log_('INFO','PAPER_PARTIAL_EXIT',JSON.stringify({tradeId:t.id,reason:reason,price:price,fraction:qtyFraction,gross:gross,exitFee:exitFee,equity:equity}));
 }
 
 function M3_exitRemaining_(t,price,ts,reason) {
   const props=PropertiesService.getScriptProperties();
   if(Number(t.remainingFraction)>0) M3_realizeFraction_(t,Number(t.remainingFraction),price,ts,reason);
-  const equity=Number(props.getProperty('M3_PAPER_EQUITY')||t.entryEquity);
+  const equity=Number(props.getProperty(M3_stateKey_('M3_PAPER_EQUITY'))||t.entryEquity);
   const totalFees=Number(t.entryFee||0)+Number(t.exitFees||0);
   const net=Number(t.realizedGross||0)-totalFees;
   const status=reason==='TARGET_2'?'CLOSED_TP2':(reason==='STOP_LOSS'?'CLOSED_SL':(reason==='BREAKEVEN_STOP_AFTER_TP1'?'CLOSED_BE':'CLOSED_TIME'));
@@ -20409,8 +21281,8 @@ function M3_exitRemaining_(t,price,ts,reason) {
     tp1_hit:Boolean(t.tp1Hit),remaining_fraction:0,realized_gross_pnl_usdt:t.realizedGross,
     entry_fee_usdt:t.entryFee,exit_fees_usdt:t.exitFees,stop_price:t.stopPrice
   });
-  props.deleteProperty('M3_ACTIVE_TRADE');
-  M3_telegram_('🧪 BTC SWAP PAPER — POSITION CLOSED\nSide: '+t.side+'\nReason: '+reason+'\nEntry: '+M3_fmtPrice_(t.entryPrice)+' USDT\nExit: '+M3_fmtPrice_(price)+' USDT\nTP1 reached: '+(t.tp1Hit?'YES':'NO')+'\nGross realized PnL: '+Number(t.realizedGross||0).toFixed(4)+' USDT\nTotal fees (entry + exits): '+totalFees.toFixed(4)+' USDT\nNet PnL: '+net.toFixed(4)+' USDT\nPaper equity: '+equity.toFixed(2)+' USDT');
+  props.deleteProperty(M3_stateKey_('M3_ACTIVE_TRADE'));
+  M3_telegram_('🧪 '+M3_CONFIG.instrument+' PAPER — POSITION CLOSED\nSide: '+t.side+'\nReason: '+reason+'\nEntry: '+M3_fmtPrice_(t.entryPrice)+' USDT\nExit: '+M3_fmtPrice_(price)+' USDT\nTP1 reached: '+(t.tp1Hit?'YES':'NO')+'\nGross realized PnL: '+Number(t.realizedGross||0).toFixed(4)+' USDT\nTotal fees (entry + exits): '+totalFees.toFixed(4)+' USDT\nNet PnL: '+net.toFixed(4)+' USDT\nPaper equity: '+equity.toFixed(2)+' USDT');
 }
 
 function M3_appendTradeRecord_(record) {
@@ -20445,17 +21317,80 @@ function M3_fetchTicker_() {
 
 function M3_writeCandles_(candles) {
   const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(M3_CONFIG.sheets.candles);
-  const old=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,1).getValues().flat():[];
-  const existing=new Set(old.map(Number));
+  const old=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,3).getValues():[];
+  const existing=new Set(old.filter(r=>String(r[2])===String(M3_CONFIG.instrument)).map(r=>Number(r[0])));
   const rows=candles.filter(c=>!existing.has(c.ts)).map(c=>[c.ts,new Date(c.ts).toISOString(),M3_CONFIG.instrument,c.open,c.high,c.low,c.close,c.volContracts,c.volBase,c.volQuote,c.confirm,c.state,c.ema20,c.ema50,c.ema200,c.rsi14,c.macdHist,c.atr14Pct,c.obv,c.volumeVsAvg20]);
   if(rows.length) sh.getRange(sh.getLastRow()+1,1,rows.length,rows[0].length).setValues(rows);
 }
 
+function M3_writePredictionAccuracy_(candles) {
+  // Walk-forward verification for every completed candle with a valid prior G/R triple.
+  // No strategy eligibility thresholds are applied here: this is model evaluation,
+  // not a trade signal. For each target candle, only earlier outcomes are used.
+  const prior={}, rows=[];
+  let total=0, correct=0;
+  for(let i=3;i<candles.length;i++) {
+    const triple=candles.slice(i-3,i).map(c=>c.state).join('');
+    const actual=candles[i].state;
+    if (!/^[GR]{3}$/.test(triple)) continue;
+
+    const st=prior[triple] || {n:0,g:0,r:0};
+    let prediction='', hit='', status='NO_PRIOR_EXAMPLES';
+    const pG=(st.g+1)/(st.n+2), pR=(st.r+1)/(st.n+2);
+    if(st.n>0 && /^[GR]$/.test(actual)) {
+      // Predict the more frequent historical outcome for this exact triple.
+      // Ties are resolved consistently in favor of G.
+      prediction=pG>=pR?'G':'R';
+      hit=prediction===actual?'YES':'NO';
+      status='EVALUATED';
+      total++;
+      if(hit==='YES') correct++;
+    } else if(st.n>0 && actual==='D') {
+      prediction=pG>=pR?'G':'R';
+      status='ACTUAL_DOJI_EXCLUDED_FROM_ACCURACY';
+    }
+
+    rows.push({
+      candle_timestamp_utc:new Date(candles[i].ts).toISOString(),
+      instrument:M3_CONFIG.instrument, triple:triple, prior_samples:st.n,
+      pG_laplace:pG, pR_laplace:pR, predicted_state:prediction,
+      actual_state:actual, prediction_status:status, correct:hit,
+      cumulative_correct:correct, cumulative_predictions:total,
+      cumulative_accuracy_pct:total?100*correct/total:''
+    });
+
+    // Add this outcome only after its prediction has been evaluated. A doji is not
+    // a G/R outcome and therefore does not train the next-state distribution.
+    if(/^[GR]$/.test(actual)) {
+      if(!prior[triple]) prior[triple]={n:0,g:0,r:0};
+      prior[triple].n++;
+      if(actual==='G') prior[triple].g++; else prior[triple].r++;
+    }
+  }
+  const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(M3_CONFIG.sheets.predictions);
+  M3_replaceInstrumentRows_(sh,M3_CONFIG.instrument,rows);
+  M3_log_('INFO','PREDICTION_ACCURACY_UPDATED',JSON.stringify({
+    instrument:M3_CONFIG.instrument,predictions:total,correct:correct,
+    accuracyPct:total?Math.round(10000*correct/total)/100:null,
+    rows:rows.length,
+    method:'walk-forward exact 3-candle G/R triple; no trade thresholds; prior outcomes only; dojis excluded from accuracy'
+  }));
+}
+
 function M3_writeStats_(stats) {
-  const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(M3_CONFIG.sheets.stats);
-  M3_replaceBody_(sh, Object.keys(stats.triples).sort().map(k=>{const s=stats.triples[k];return [k,s.n,s.g,s.r,(s.g+1)/(s.n+2),(s.r+1)/(s.n+2),M3_wilsonLower_(s.g,s.n),M3_wilsonLower_(s.r,s.n)];}));
-  const ph=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(M3_CONFIG.sheets.patterns);
-  M3_replaceBody_(ph,Object.keys(stats.patterns).sort().map(k=>{const s=stats.patterns[k];return [k,s.n,s.g,s.r,(s.g+1)/(s.n+2),(s.r+1)/(s.n+2)];}));
+  const ss=SpreadsheetApp.getActiveSpreadsheet();
+  const sh=ss.getSheetByName(M3_CONFIG.sheets.stats);
+  const tripleRows=Object.keys(stats.triples).sort().map(k=>{
+    const st=stats.triples[k];
+    return {instrument:M3_CONFIG.instrument,triple:k,n:st.n,next_G:st.g,next_R:st.r,pG_laplace:(st.g+1)/(st.n+2),pR_laplace:(st.r+1)/(st.n+2),wilsonLowerG95:M3_wilsonLower_(st.g,st.n),wilsonLowerR95:M3_wilsonLower_(st.r,st.n)};
+  });
+  M3_replaceInstrumentRows_(sh,M3_CONFIG.instrument,tripleRows);
+  const ph=ss.getSheetByName(M3_CONFIG.sheets.patterns);
+  const patternRows=Object.keys(stats.patterns).sort().map(k=>{
+    const st=stats.patterns[k];
+    return {instrument:M3_CONFIG.instrument,pattern5:k,n:st.n,next_G:st.g,next_R:st.r,pG_laplace:(st.g+1)/(st.n+2),pR_laplace:(st.r+1)/(st.n+2)};
+  });
+  M3_replaceInstrumentRows_(ph,M3_CONFIG.instrument,patternRows);
 }
 
 function M3_writeSignal_(r) {
@@ -20493,18 +21428,31 @@ function M3_wilsonLower_(success,n) {
   if(!n)return 0; const z=1.96,p=success/n,z2=z*z;
   return (p+z2/(2*n)-z*Math.sqrt((p*(1-p)/n)+(z2/(4*n*n))))/(1+z2/n);
 }
-function M3_replaceBody_(sheet, rows) {
-  if(sheet.getLastRow()>1) sheet.getRange(2,1,sheet.getLastRow()-1,sheet.getLastColumn()).clearContent();
-  if(rows.length) sheet.getRange(2,1,rows.length,rows[0].length).setValues(rows);
+function M3_replaceInstrumentRows_(sheet, instrument, rows) {
+  const last=sheet.getLastRow();
+  const headers=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0].map(String);
+  const instrumentCol=headers.indexOf('instrument')+1;
+  if(instrumentCol<1) throw new Error('Missing instrument column in '+sheet.getName());
+  if(last>1) {
+    const instruments=sheet.getRange(2,instrumentCol,last-1,1).getValues().flat();
+    for(let i=instruments.length-1;i>=0;i--) if(String(instruments[i])===String(instrument)) sheet.deleteRow(i+2);
+  }
+  if(rows.length) {
+    const values=rows.map(record=>headers.map(h=>Object.prototype.hasOwnProperty.call(record,h)?record[h]:''));
+    sheet.getRange(sheet.getLastRow()+1,1,values.length,headers.length).setValues(values);
+  }
 }
-function M3_appendRow_(sheetName,row) {
+function M3_appendRow_(sheetName,record) {
   const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
+  const headers=sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(String);
+  const row=Array.isArray(record) ? record : headers.map(h=>Object.prototype.hasOwnProperty.call(record,h)?record[h]:'');
   sh.getRange(sh.getLastRow()+1,1,1,row.length).setValues([row]);
 }
 function M3_log_(level,event,details) {
-  try { M3_appendRow_(M3_CONFIG.sheets.logs,[new Date().toISOString(),level,event,String(details)]); }
+  try { M3_appendRow_(M3_CONFIG.sheets.logs,{timestamp_utc:new Date().toISOString(),instrument:M3_CONFIG.instrument,level:level,event:event,details:String(details)}); }
   catch(e) { console.log(level+' '+event+' '+details); }
 }
+
 function M3_telegram_(message) {
   const p=PropertiesService.getScriptProperties();
   const token=p.getProperty('TELEGRAM_BOT_TOKEN'), chat=p.getProperty('TELEGRAM_CHAT_ID');
@@ -20527,14 +21475,14 @@ function M3_sendErrorAlert_(source, detail) {
   const props=PropertiesService.getScriptProperties();
   const safeDetail=String(detail||'Unknown error').replace(/\s+/g,' ').slice(0,1200);
   const fingerprint=source+'|'+safeDetail.slice(0,300);
-  const activeKey='M3_ERROR_ACTIVE_'+source;
-  const sentAtKey='M3_ERROR_ALERT_TS_'+source;
+  const activeKey=M3_stateKey_('M3_ERROR_ACTIVE_'+source);
+  const sentAtKey=M3_stateKey_('M3_ERROR_ALERT_TS_'+source);
   const previous=props.getProperty(activeKey)||'';
   const lastSent=Number(props.getProperty(sentAtKey)||0);
   const now=Date.now();
   const repeatAfterMs=6*60*60*1000;
   if(previous===fingerprint && now-lastSent<repeatAfterMs) return false;
-  const message='⚠️ BTC MARKOV — ERROR ALERT\nSource: '+source+'\nTime (UTC): '+new Date(now).toISOString()+'\nDetails: '+safeDetail+'\nAction: Check Apps Script → Executions and the M3_Logs sheet.';
+  const message='⚠️ '+M3_CONFIG.instrument+' MARKOV — ERROR ALERT\nSource: '+source+'\nTime (UTC): '+new Date(now).toISOString()+'\nDetails: '+safeDetail+'\nAction: Check Apps Script → Executions and the M3_Logs sheet.';
   // Persist the throttle before delivery so Telegram/network failures cannot cause an alert storm.
   props.setProperty(activeKey,fingerprint);
   props.setProperty(sentAtKey,String(now));
@@ -20551,19 +21499,19 @@ function M3_sendErrorAlert_(source, detail) {
 /** Sends a one-time recovery notification after a previously alerted error clears. */
 function M3_clearErrorAlert_(source) {
   const props=PropertiesService.getScriptProperties();
-  const activeKey='M3_ERROR_ACTIVE_'+source;
+  const activeKey=M3_stateKey_('M3_ERROR_ACTIVE_'+source);
   const previous=props.getProperty(activeKey);
   if(!previous) return;
-  const sent=M3_telegram_('✅ BTC MARKOV — RECOVERED\nSource: '+source+'\nTime (UTC): '+new Date().toISOString()+'\nA successful execution completed after the previous error.');
+  const sent=M3_telegram_('✅ '+M3_CONFIG.instrument+' MARKOV — RECOVERED\nSource: '+source+'\nTime (UTC): '+new Date().toISOString()+'\nA successful execution completed after the previous error.');
   if(sent) {
     props.deleteProperty(activeKey);
-    props.deleteProperty('M3_ERROR_ALERT_TS_'+source);
+    props.deleteProperty(M3_stateKey_('M3_ERROR_ALERT_TS_'+source));
   }
 }
 
 /** Manually run once to verify Telegram credentials and chat ID. */
 function M3_testTelegram() {
-  const ok=M3_telegram_('✅ BTC Markov Telegram test\nTime (UTC): '+new Date().toISOString()+'\nError alerts are configured to use TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.');
+  const ok=M3_telegram_('✅ Multi-symbol Markov Telegram test\nTime (UTC): '+new Date().toISOString()+'\nError alerts are configured to use TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.');
   if(!ok) throw new Error('Telegram test failed. Check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in Script Properties.');
   M3_log_('INFO','TELEGRAM_TEST_OK','Test message delivered.');
 }
